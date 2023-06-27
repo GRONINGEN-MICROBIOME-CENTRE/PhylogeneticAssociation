@@ -16,7 +16,7 @@ source("Functions.R")
 
 
 print("============== Initiating association script =============")
-print("Usage: Rscript Association.R SGB_NAME PHYLOGENETIC_TREE")
+print("Usage: Rscript Association.R SGB_NAME PHYLOGENETIC_TREE PHENOTYPE [COV1,COV2,COV3...] [Suffix_save]")
 print("Checking variables included")
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -29,8 +29,16 @@ if (!length(args) > 2) {
 SGB = args[1]
 Tree = args[2]
 Phenotype = args[3]
+if (length(args) > 3){	
+	Covariates = str_split(args[4], ",")[[1]] 
+	Suffix = args[5]
+}else{
+	Covariates = NULL
+	Suffix= NULL
+}
+
 Do_Remove_repeated = T
-Metadata_location = "../Phenotypes/Phenotypes_merged.tsv"
+Metadata_location = "../Phenotypes/Phenotypes_merged_complete.tsv" #"Phenotypes_merged.tsv"
 Variables_to_remove = "../Phenotypes/Remove_variables.tsv"
 
 print( paste0("Analyzing SGB: ", SGB, " and its tree: ", Tree ) ) 
@@ -81,7 +89,7 @@ Plot_dir = paste0("Results/Plots/",SGB)
 if (!file.exists(Plot_dir)) {
   dir.create(Plot_dir)
 }
-Summary_stats = paste0("Results/Reports/",SGB, ".tsv")
+Summary_stats = paste0("Results/Reports/",SGB, Suffix, ".tsv")
 Model_dir = paste0("Results/Models/",SGB)
 if (!file.exists(Model_dir)) {
   dir.create(Model_dir)
@@ -142,10 +150,12 @@ Run_single_pheno = function(Phenotype, Fit_anpan){
 	Save_model = paste0(Model_dir, "/", Phenotype, "/" )
 	if (!file.exists(Save_model)) { dir.create(Save_model) }
 	print(paste0(Phenotype, " for association ", Family) )
+	Plot_name = paste0(Plot_dir, "/", Phenotype, Suffix, ".pdf" )
+	print(Plot_name)
 	if (Fit_anpan == T){
-		Function_fit_anpan(Phenotype, pruned_tree, Metadata, Fam=Family, Model_save = Save_model, Plot= paste0(Plot_dir, "/", Phenotype, ".pdf" )  )  -> Results
+		Function_fit_anpan(Phenotype, pruned_tree, Metadata, Fam=Family, Model_save = Save_model, Plot= paste0(Plot_dir, "/", Phenotype, Suffix, ".pdf" ), COV=Covariates  )  -> Results
 	}
-	Summary_stats = paste0("Results/Reports/",SGB,"_", Phenotype, ".tsv")
+	Summary_stats = paste0("Results/Reports/",SGB,"_", Phenotype, Suffix,  ".tsv")
 	Results %>% mutate(SGB = SGB) %>% write_tsv(Summary_stats)
 }
 

@@ -67,7 +67,7 @@ Function_fit_anpan = function(Phenotype_name, Tree, Meta, Plot, Model_save , Fam
   ggsave(Plot, plot)
 
 
-  as_tibble(result$loo$comparison)[2,] %>% mutate(Phenotype = Phenotype_name) -> Result
+  as_tibble(result$loo$comparison)[2,] %>% mutate(Phenotype = Phenotype_name, covariates= paste(COV, collapse="+")  ) -> Result
   return(Result)
 
 }
