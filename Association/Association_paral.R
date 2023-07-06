@@ -62,7 +62,8 @@ Tree$tip.label = New_names
 #3. Get metadata
 print("Reading metadata")
 #Remove some datasets/. Sample MH0012 is repeated with the same name in two datasets. Study ThomasAM_2019_c is repeated.
-Metadata = read_tsv(Metadata_location) %>%  filter(! (id_used == "MH0012" & study_name ==  "LeChatelierE_2013") ) %>% filter(! study_name == "ThomasAM_2019_c" )
+Metadata = read_tsv(Metadata_location) %>% filter(! study_name == "ThomasAM_2019_c" )
+Metadata %>% group_by(ID_anal) %>% sample_n(1) -> Metadata
 read_tsv(Variables_to_remove) -> Not_associate
 colnames(select(Metadata, -one_of( c("ID_anal", Not_associate$Remove)))) -> For_association
 #Trimming metadata
