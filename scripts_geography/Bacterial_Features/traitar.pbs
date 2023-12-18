@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# >>> conda initialize >>>
+# !! Contents within this block are managed by 'conda init' !!
+__conda_setup="$('/shares/CIBIO-Storage/CM/scratch/tools/anaconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
+if [ $? -eq 0 ]; then
+	eval "$__conda_setup"
+else
+	if [ -f "/shares/CIBIO-Storage/CM/scratch/tools/anaconda3/etc/profile.d/conda.sh" ]; then 
+		. "/shares/CIBIO-Storage/CM/scratch/tools/anaconda3/etc/profile.d/conda.sh"
+	else
+		export PATH="/shares/CIBIO-Storage/CM/scratch/tools/anaconda3/bin:$PATH"
+	fi
+fi
+unset __conda_setup
+
+# <<< conda initialize <<<
+conda deactivate
+conda activate chocophlansgb 
+
+mkdir -p $out/$sgb
+#mkdir -p /shares/CIBIO-Storage/CM/scratch/users/mireia.vallescolomer/analyses/ASV_ref/traitar/${out}/${sgb}
+python  /shares/CIBIO-Storage/CM/scratch/users/aitor.blancomiguez/tests/chocophlansgb/uniref90_pangenome/get_core_genes.py --sgb $sgb --output $out -r Jan21
+
+conda deactivate
+conda activate traitar_new
+#mkdir -p $out/$sgb
+/shares/CIBIO-Storage/CM/scratch/tools/anaconda3/envs/traitar_new/bin/traitar phenotype /shares/CIBIO-Storage/CM/scratch/users/mireia.vallescolomer/analyses/ASV_ref/traitar/pfam/ $out/$sgb $out/$sgb/${sgb}.txt from_genes $out/$sgb/traitar --overwrite
