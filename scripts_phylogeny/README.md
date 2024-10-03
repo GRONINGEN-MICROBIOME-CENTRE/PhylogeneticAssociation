@@ -3,10 +3,12 @@
 ```bash
 strainphlan -o {OUTPUT} -n {CPU}  --sample_with_n_markers 50 --secondary_sample_with_n_markers 50  --sample_with_n_markers_after_filt 33 --marker_in_n_samples 50 --samples {PRIMARY} --secondary_samples {SECONDARY} -c {SGB} -d /shares/CIBIO-Storage/CM/scratch/databases/metaphlansgb_databases/mpa_vJan21_CHOCOPhlAnSGB_202103.pkl --treeshrink --debug 
 ```
-Selection of primary samples, which are the ones that will be used by StrainPhlAn for selecting marker genes to be used for phylogenetic reconstruction, was done from the MetaPhlAn taxonomic abundance profiles. We required a minimal depth of coverage of 2X for primary samples. Depth of coverages are calcualted using this formula:
+Selection of primary samples, which are the ones that will be used by StrainPhlAn for selecting marker genes to be used for phylogenetic reconstruction, was done from the MetaPhlAn taxonomic abundance profiles. We required a minimal depth of coverage of 2X for primary samples. Depth of coverages are calcualted using this formula:  
+
 $$
 \text{Coverage}_{\text{SGB, Sample}} = \frac{ \left( \text{AvgReadLength}_{\text{Sample}} \times \text{ReadNumber}_{\text{Sample}} \times \text{Rel.Abundance}_{\text{SGB, Sample}} \right) }{ \text{AvgGenomeLength}_{\text{SGB}} }
-$$
+$$  
+
 The code can be found in this script:
 ```Create_PrimarySecondary.py```
 
