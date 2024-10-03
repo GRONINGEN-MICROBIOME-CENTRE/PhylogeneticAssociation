@@ -26,7 +26,7 @@ The specific python script preparing jobs for an HPC batch run is avaialble in:
 ## Associations
 #### Geography vs Phylogeny
 Mantel test script between genetic and geographical distances can be found in:
-scripts_geography/Geography_vs_phylopgenyMantel.R
+```scripts_geography/Geography_vs_phylopgenyMantel.R```
 ##### Strain sharing
 Scripts for computing strain sharing, and its association to mantel's rho value can be bound in ```scripts_geography/Strain_sharing/```
 ##### Bacterial characteristics vs Geographical effect
