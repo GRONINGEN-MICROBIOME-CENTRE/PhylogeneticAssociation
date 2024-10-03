@@ -1,0 +1,204 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Notebook for analyses for reviewers/revision of the manuscript.
+Notebook 1: Obtaining P-values from elpd_diff
+Note: anpan works in a bayesian framework, where P-values are not a common metric. The phylogenetic effect (sigma_phylo) is already regularized in the model, which should control for false discoveries (see below for more info).  
+
+
+
+```{r}
+set.seed(12234)
+library(tidyverse)
+library(patchwork)
+setwd("/mnt/project/Make_Associations/Git/PhylogeneticAssociation/Analyses_revision")
+```
+
+## Assuming that epld_loo follows a normal distribution, obtain a T-value and a P-value for it
+Unde the assumption that this approximation (normality) of the parameter’s distribution is accurate/faithful, if the normal approximation is accurate, then we can use it to make inferences about the range of values that a parameter can take.
+Given a normally distributed statistic elpd_diff and its SE, compute a T-statistic, and a P-value.
+T= Statistic/SE
+Here, we will use a 1-tailed test, since we are just interested in larger elpd_diff values: P-value=P(T>t)
+
+
+```{r}
+
+#Read table of elpd statistics
+#Europe
+read_csv("../../../Association/Results_PerContinent_Europe.csv") %>% mutate(Continent="Europe") -> Europe
+#Asia
+read_csv("../../../Association/Results_PerContinent_Asia.csv") %>% mutate(Continent="Asia") -> Asia
+#NorthAmerica
+read_csv("../../../Association/Results_PerContinent_NorthAmerica.csv") %>% mutate(Continent="North_America") -> NorthAmerica
+#SouthAmerica
+read_csv("../../../Association/Results_PerContinent_SouthAmerica.csv") %>% mutate(Continent="South_America") -> SouthAmerica
+#Africa
+read_csv("../../../Association/Results_PerContinent_Africa.csv") %>% mutate(Continent="Africa") -> Africa
+#Oceania
+read_csv("../../../Association/Results_PerContinent_Oceania.csv") %>% mutate(Continent="Oceania") -> Oceania
+##Merge
+Europe %>% rbind(Asia) %>% rbind(NorthAmerica) %>% rbind(SouthAmerica) %>% rbind(Africa) %>% rbind(Oceania) -> df
+print(dim(df))
+```
+Compute P-values
+```{r }
+T_stat_P = function(T_value){
+  p_value <- 2 * (1 - pnorm(abs(T_value)))
+}
+###Compute T-statostic, P-value and Q-value
+df %>% mutate(T_stat = elpd_diff/se_diff, P_value = T_stat_P(T_stat), P_bonferroni = P_value*dim(df)[1], FDR=p.adjust(P_value, "fdr")  ) -> df
+
+```
+Compute cut-off used in manuscript
+```{r }
+df %>% mutate( Percentage_badk = 100* ( (k_bad+k_verybad)/(k_good+k_ok+k_bad+k_verybad))  ) -> df
+df %>% mutate(Cutoff = ifelse(  Abs_LowerBound > 0 & elpd_diff < -4 & Percentage_badk < 1, T, F) ) -> df
+```
+Compare P_bonferroni with the cut-off applied in the manuscript
+```{r }
+df %>% group_by(P_bonferroni < 0.05, Cutoff==T ) %>% summarise(N = n()) %>% print()
+```
+Compare FDR with the cut-off applied in the mansucript
+```{r }
+df %>% group_by(FDR < 0.05, Cutoff==T ) %>% summarise(N = n()) %>% print()
+```
+Reproduce supplementary figure 3A with different cut-offs
+```{r }
+read_tsv("/mnt/project/Make_Associations/Phenotypes/Phenotypic_categories.tsv") %>% rename(Phenotype = Phenos) -> Categories
+Make_SF3A=  function(All_associations, Phenotypic_categories= Categories){
+  All_associations %>% group_by(Phenotype, Continent) %>% summarise(N = n()) %>% spread(Continent, N) %>% ungroup() -> N_phenotypes
+  N_phenotypes[is.na(N_phenotypes)] = 0
+  N_phenotypes %>% left_join(Categories) %>% select(-Phenotype) %>% group_by(Category) %>%
+  summarise_all(sum) %>% gather(Continent, N_associations,Africa:South_America) %>% mutate(Category = ifelse(Category == "Lifestyle_and_exposome", "Lifestyle &\nexposome", ifelse(Category == "Medication_and_Supplements", "Medication &\n supplements",  Category) ) ) %>% drop_na() %>%
+  ggplot(aes(x=reorder(Category, N_associations), y=N_associations, fill=Continent )) + geom_bar(stat="identity") + theme_bw() +
+  scale_fill_manual(values=c("Europe" = "#1f77b4", "North_America" = "#ff7f0e", "South_America" = "#2ca02c", "Asia" = "#d62728", "Oceania" = "#9467bd", "Africa" = "#FFCE30")) + coord_flip() +
+  xlab("Phenotypic category") + theme(
+    text = element_text(size = 19), # Adjust the text size as needed
+    axis.text.x = element_text(size = 19), # Text size for x-axis labels
+    axis.text.y = element_text(size = 19), # Text size for y-axis labels
+    legend.text = element_text(size = 19) # Text size for legend
+  ) + ylab("Association number") -> Plot1
+  return(Plot1)
+}
+
+
+Make_SF3A( df %>% filter(Cutoff == T) ) + ggtitle("Original")
+Make_SF3A( df %>% filter(FDR < 0.05 ) ) + ggtitle("FDR_cutoff")
+Make_SF3A( df %>% filter(P_bonferroni < 0.05 ) ) + ggtitle("Bonferroni_cutoff")
+
+
+```
+
+
+
+
+
+Are the major examples of the manuscript not significant on a different cut-off?
+
+```{r }
+#B. longum and age
+df %>% filter(SGB == "t__SGB17248") %>% filter(Phenotype == "Age") %>% filter(Continent %in% c("Europe", "Africa") ) %>% select(Continent, elpd_diff, P_bonferroni, FDR ,Cutoff )
+```
+```{r }
+#R. gnavus and age
+df %>% filter(SGB == "t__SGB4584") %>% filter(Phenotype == "Age") %>% filter(Continent %in% c("Europe", "Asia") ) %>% select(Continent, elpd_diff, P_bonferroni, FDR ,Cutoff )
+```
+```{r }
+#R. bromii and BMI
+df %>% filter(SGB == "t__SGB4285_group") %>% filter(Phenotype == "BMI") %>% filter(Continent %in% c("Europe", "Asia", "NorthAmerica") ) %>% select(Continent, elpd_diff, P_bonferroni, FDR ,Cutoff )
+```
+```{r }
+#C. aerofaciens and melanoma
+df %>% filter(SGB == "t__SGB14546_group") %>% filter(Phenotype == "melanoma") %>% filter(Continent %in% c("Europe", "NorthAmerica") ) %>% select(Continent, elpd_diff, P_bonferroni, FDR ,Cutoff )
+```
+
+Reviewer 1 is further interested in the P-values of nonagenarian associations (L246++ in the orginal manuscript). Which correspond to SGB4584/Ruminococcus gnavus (elpd_diff=-65.5), SGB1626/Segatella copri (elpd_diff=-14.2), SGB10115/Klebsiella (epld_diff=-5.2), SGB2303/Alistipes onderdonkii (elpd_diff=-5.4) and SGB15342/F. prausnitzii (elpd_diff=-4.2)
+```{r }
+#Assocation from the nonagenarian analysis: Add cut-offs elpd_diff and Q-values
+read_csv("../../../Association/Results_PerContienent_Asia_ElderInfant.csv") %>% mutate( Percentage_badk = 100* ( (k_bad+k_verybad)/(k_good+k_ok+k_bad+k_verybad))  ) %>%  mutate(Cutoff = ifelse(  Abs_LowerBound > 0 & elpd_diff < -4 & Percentage_badk < 1, T, F) ) %>% mutate(T_stat = elpd_diff/se_diff, P_value = T_stat_P(T_stat), P_bonferroni = P_value*dim(.)[1], FDR=p.adjust(P_value, "fdr")  ) %>% select(SGB, Phenotype, elpd_diff, Cutoff, FDR, P_bonferroni ) %>% arrange(elpd_diff)
+
+
+```
+
+
+
+## Why it is not a good idea to compute P-values based on elpd_diff statistics
+
+ELPD differences are asymptotically normal.  SE is quantifying the uncertainty in the the estimate of the ELPD difference, but that doesn't mean it's a valid null hypothesis significance testing statistic. A "null" simulation shows that the intervals are not well behaved standard normal deviates (See function below). Furthermore, the ELPD itself emphasizes the point that you're comparing two specific models and ignoring the infinite number of other plausible models.
+Here, there is a simulation written by Andrew Ghazi, developer of the tool, showing that the SE are not completely normally distributed
+
+```{r}
+library(anpan)
+
+anpan_loo_res = function() {
+  # set.seed(123)
+
+  n = 120
+  sigma_phylo = 0
+  sigma_resid = 1
+
+  tr = ape::rtree(n)
+  cor_mat = ape::vcv.phylo(tr, corr = TRUE)
+
+  cor_mat[1:5,1:5]
+  covariate = rnorm(n)
+
+  linear_term = 1 * covariate + rnorm(n, mean = 0, sd = sigma_resid)
+
+  true_phylo_effects = sigma_phylo * MASS::mvrnorm(1, mu = rep(0, n), Sigma = cor_mat)
+
+  metadata = tibble(sample_id = colnames(cor_mat),
+                    covariate = covariate,
+                    outcome   = linear_term + true_phylo_effects)
+  result = anpan_pglmm(meta_file       = metadata,
+                       tree_file       = tr,
+                       outcome         = "outcome",
+                       covariates      = "covariate",
+                       family          = "gaussian",
+                       bug_name        = "sim_bug",
+                       reg_noise       = TRUE,
+                       loo_comparison  = TRUE,
+                       run_diagnostics = FALSE,
+                       refresh         = 0,
+                       parallel_chains = 4,
+                       show_plot_tree  = FALSE,
+                       show_post       = FALSE, verbose = FALSE)
+
+  comp_mat = result$loo$comparison
+
+  if (rownames(comp_mat)[2] == "base_fit"){
+    comp_mat[2,1] = -1 * comp_mat[2,1]
+  }
+
+  tibble(elpd_diff = comp_mat[2,1],
+         elpd_se = comp_mat[2,2])
+}
+
+sim_df = replicate(100, anpan_loo_res(), simplify = FALSE) |>
+  bind_rows()
+
+
+```
+
+```{r }
+sim_df |>
+  mutate(i = 1:100) |>
+  ggplot(aes(x = elpd_diff, y = i)) +
+  geom_point() +
+  geom_segment(aes(x = elpd_diff - 2*elpd_se,
+                   xend = elpd_diff + 2*elpd_se,
+                   yend = i)) +
+  theme_light() -> P1
+sim_df %>% ggplot(aes(x=elpd_diff)) + geom_histogram() +theme_bw() -> P2
+
+P1 + P2
+
+```
+
+```{r }
+sim_df %>% mutate(T_stat = elpd_diff/elpd_se, P_value = T_stat_P(T_stat), P_bonferroni = P_value*dim(sim_df)[1], FDR=p.adjust(P_value, "fdr")  )
+
+
+```
