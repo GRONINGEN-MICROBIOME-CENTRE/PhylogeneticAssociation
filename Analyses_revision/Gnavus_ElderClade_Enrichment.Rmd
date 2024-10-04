@@ -1,0 +1,220 @@
+---
+title: "Enrichment_gnavus_Elder"
+output: html_document
+date: "2024-10-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Analysis enrichment
+In this notebook I will show how there is an enrichment of elder individuals within a clade of R. gnavus.
+I load the output from anpan which has been saved as RDS files, anf from it I extract the median (from the posterior distribution) phylogenetic effect per leaf. I will use this for plotting, and to define the clade of interest.
+
+```{r cars}
+set.seed(12234)
+library(tidyverse)
+library(anpan)
+library(ape)
+library(ggtree)
+library(ggtreeExtra)
+library(ggnewscale)
+library(lmerTest)
+
+setwd("/mnt/project/Make_Associations/Git/PhylogeneticAssociation/Analyses_revision")
+Process_RDS = function(Data){
+  read_rds(Data) -> Data
+  Data$model_input -> Info
+  Data$pglmm_fit$summary() -> Data
+  print("Preparing information table")
+  Data %>% filter( grepl("phylo", variable))  %>% filter(! grepl("std", variable)) %>% mutate(sample_id = factor(c("-", as.character(Info$sample_id)))) %>%
+    select(sample_id, median) %>% rename(phylo_effect_median = median) -> Phylo
+  left_join(Info, Phylo) %>% mutate(sample_id = as.character(sample_id)) -> Phylo
+  return(Phylo)
+}
+Process_tree = function(Tree){
+  read.tree(Tree) -> Tree
+  if (class(Tree) ==  "multiPhylo"){ Tree = Tree[[1]] }
+  Tree = midpoint.root(Tree)
+  #2. Rename labels tree
+  print("Processing tree")
+  Tree$tip.label %>% sapply(. , Clean_names) -> New_names
+  Tree$tip.label = as.vector(New_names)
+  if ( length(Tree$tip.label) < 100 ) { print("Tree is too small") ; q() }
+  return(Tree)
+  
+}
+
+```
+
+We read the phenotypic information from all samples, and the phylogenetic results in European, Asian, and only XuQ_2021, of associating R. gnavus (t__SGB4584) and age using anpan.
+
+
+```{r pressure, echo=FALSE}
+read_tsv("/mnt/project/Make_Associations/Phenotypes/Phenotypes_merged_complete.tsv") -> Phenos
+Phenos %>% select(ID_anal, study_name, Continent, Country, Sex, sample_id) %>% rename(other_id = sample_id ,sample_id = ID_anal) -> Phenos_merge
+
+
+Process_RDS("/mnt/project/Make_Associations/Association/Results/Continent_stratified/Age,Country_Europe/Models/t__SGB4584/Age/Model.rds") -> Age_europe
+Process_RDS("/mnt/project/Make_Associations/Association/Results/Continent_stratified/Age,Country_Asia/Models/t__SGB4584/Age/Model.rds") -> Age_Asia
+Process_RDS("/mnt/project/Make_Associations/Association/Results/Cohort_specific/Age_XuQ_2021/Models/t__SGB4584/Age/Model.rds") -> Age_xu
+
+Tree_gnavus_all = Process_tree("/mnt/project/Symlink_phylo/RAxML_bestTree.t__SGB4584.TreeShrink.tre")
+
+```
+
+We will use this function to define the 'elder clade'. Basically, using the data from XuQ, get the clade that descent in the individuals with high median phylogenetic effect.
+```{r}
+GetNodeAncesterClade = function(Tree, df =Age_xu ){
+  #Get the node that descendents in the individuals with higher phylogenetic effect
+  Names = filter(df, phylo_effect_median>9.5)$sample_id
+  match( Names , Tree$tip.label) -> CHECK
+  common_ancestor <- getMRCA(Tree, CHECK)
+  return(common_ancestor)
+}
+```
+
+## Plot tree
+
+
+This function will plot a tree with the results from anpan on the leaves, and highlighting the clade of interest
+```{r}
+Plot_age_effect = function(Tree, Phenotypes, Phylo_age){
+  left_join(Phylo_age, Phenotypes,by="sample_id") -> Phylo_age
+  #Only keep branches of the subjects of interest
+  keep.tip(Tree, Phylo_age$sample_id) -> Tree
+  print(Tree)
+  
+  Phylo_age %>% mutate(Octagenarian = ifelse(Age>=80, T, F), Septuagenarian = ifelse(Age>=70, T, F), Nonagenarian =   ifelse(Age>=90, T, F))  -> Phylo_age
+  
+  Node = GetNodeAncesterClade(Tree)
+  print(paste0("MCA:",Node))
+  #Plot tree
+  ggtree(Tree, layout="fan", open.angle=15, size=0.1) %<+% Phylo_age  -> p
+p + geom_fruit( geom="geom_tile", mapping = aes(fill=phylo_effect_median), width=0.03,offset=0.1) + scale_fill_viridis_c(option = "magma") +
+  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Octagenarian), width=0.03,offset=0.1) + scale_fill_manual(values=c("TRUE"= "#E31A1C", "FALSE"="white") )  + 
+  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Age), width=0.03,offset=0.1 )  + scale_fill_viridis_c(option = "viridis") + geom_balance(node=Node  , fill="grey", color=NA, alpha=0.3) -> Tree_elderClade
+
+  if ("Continent" %in% colnames(Phylo_age)  ){ 
+    Tree_elderClade + new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Continent), width=0.03,offset=0.1 ) + scale_fill_manual(values=c("Europe" = "#1f77b4", "Asia" = "#E31A1C"))  -> Tree_elderClade
+  }
+    
+  return(Tree_elderClade)
+
+}
+
+```
+
+Plot results from XuQ_2021 assocation
+```{r }
+Plot_age_effect(Tree_gnavus_all, Phenos_merge, Age_xu)
+```
+Plot results from association in all Asian samples
+```{r }
+Plot_age_effect(Tree_gnavus_all, Phenos_merge, Age_Asia)
+```
+
+## Enrichment clade
+
+
+Now, I will show that this clade is enriched in elder individuals, in XuQ2021, Asian samples, and European samples.
+I will use this function to define which samples fall within the Elder clade, and run enrichment tests for the presence of individuals >70, >80, or >90 years old, and continuous logistic regression test to show that the odds of having a strain in this clade increase with age (while accounting for study specific effects).
+```{r }
+Enrichment_elder = function(Tree, Phenotypes, Phylo_age, Is_Eur=F ){
+  #Prepare data
+  left_join(Phylo_age, Phenotypes,by="sample_id") -> Phylo_age
+  keep.tip(Tree, Phylo_age$sample_id) -> Tree
+  Phylo_age %>% mutate(Octagenarian = ifelse(Age>=80, T, F), Septuagenarian = ifelse(Age>=70, T, F), Nonagenarian = ifelse(Age>=90, T, F))  -> Phylo_age
+  #Get assignment to clade
+  Node = GetNodeAncesterClade(Tree)
+  Tree$tip.label[getDescendants(Tree, Node)] -> Aging_clade
+  Phylo_age %>% mutate(Elder_clade = ifelse(sample_id %in% Aging_clade, T, F ) ) -> Phylo_age
+  if (Is_Eur==T){
+    Phylo_age %>% filter(Continent == "Europe") -> Phylo_age
+  }
+  #Run enrichment
+  List_enrichment = list()
+  for ( Age_group in c("Septuagenarian", "Octagenarian", "Nonagenarian") ){
+    Phylo_age[[Age_group]] =  as.factor(Phylo_age[[Age_group]] )
+    Phylo_age[["Elder_clade"]] =  as.factor(Phylo_age[["Elder_clade"]] )
+    
+    #If not enough samples, skip
+    if ( length(levels(Phylo_age[[Age_group]]) ) == 1  ){
+      print(paste0("Not enough ", Age_group, " samples (0): Skipping" ))
+      next()
+    }
+    
+    contingency_table <- table(Phylo_age[[Age_group]], Phylo_age$Elder_clade)
+    colnames(contingency_table) = paste0( paste0(Age_group,"_") ,levels(Phylo_age[[Age_group]]) )
+    rownames(contingency_table) = paste0("Clade_" ,levels(Phylo_age$Elder_clade) )
+
+    fisher_result <- fisher.test(contingency_table)
+
+    List_enrichment[[Age_group]] = list( "Contingency_table" =  contingency_table, P_fisher = fisher_result$p.value)
+  }
+  print("Fisher test enrichment results: ")
+  print(List_enrichment)
+  #Run a logistic regression (age as a continuous variable)
+  #if more than one study, control for study as a random effect
+  N_studies = Phylo_age$study_name %>% unique() %>% length()
+  print(paste0("Number of studies in dataset:", N_studies ) )
+  if (N_studies == 1 ){
+    glm( as.factor(Elder_clade) ~ Age,Phylo_age, family=binomial ) %>% summary() -> Model
+  } else {
+    glmer( as.factor(Elder_clade) ~ Age + (1|study_name), Phylo_age, family=binomial ) %>% summary() -> Model
+  }
+  print("Logistic regression results: ")
+  print( Model$coefficients )
+  return(Phylo_age)
+}
+
+
+```
+
+Run enrichment in XuQ
+```{r }
+Age_xu2 = Enrichment_elder(Tree_gnavus_all, Phenos_merge, Age_xu)
+```
+Run enrichment in Asian tree
+
+```{r }
+Age_Asia2 = Enrichment_elder(Tree_gnavus_all, Phenos_merge, Age_Asia)
+```
+
+Run enrichment in European samples. Here, to define the clade, we need to keep the samples form XuQ in the tree, use them to get the MRCA and then remove them.
+
+```{r }
+rbind ( Age_europe, Age_Asia) -> Combined_info
+Age_europe2 = Enrichment_elder(Tree_gnavus_all, Phenos_merge, Combined_info, Is_Eur=T)
+```
+
+## Confounding
+
+Finally, repeat enrichment for XuQ controlling for other possible confounders
+For that, get all metatadata available for the cohort : https://github.com/waldronlab/curatedMetagenomicDataCuration/tree/master/inst/curated/XuQ_2021
+```{r }
+read_tsv("../../../Phenotypes/Specific/XuQ_meta.tsv") -> Phenos_XuQ
+left_join(Age_xu2,Phenos_XuQ, by=c("other_id" = "sample_id") ) -> Xu_confunding
+
+#Controlling for family, disease, gender, BMI and sequencing depth
+Xu_confunding %>% select(Elder_clade, Age, gender, BMI, number_reads, study_condition, family ) %>% drop_na() -> ToTest
+#without disease
+glmer( as.factor(Elder_clade) ~ Age + gender + BMI + scale(number_reads)  + (1|family), ToTest, family=binomial ) %>% summary()
+#with diease (disease increases with age, thus, colinear)
+lm(Age ~ study_condition, ToTest) %>% summary() #colinearity of T2D
+glmer( as.factor(Elder_clade) ~ Age + gender + BMI + scale(number_reads) + study_condition  + (1|family), ToTest, family=binomial ) %>% summary()
+
+```
+
+Overall we still find the effect. What about in European population, is this confounded for instance, by BMI/Sex/number of reads?
+
+```{r}
+Phenos %>% select(ID_anal, BMI, Sex,number_reads) %>% rename(sample_id = ID_anal) -> Phenos_merge_confounding
+Age_europe2 %>% left_join(Phenos_merge_confounding) %>% distinct(sample_id, .keep_all = T) -> ToTest_Europe 
+ToTest_Europe %>% select(Elder_clade, Age, Sex, BMI, number_reads, study_name) %>% drop_na() -> ToTest_Europe2
+ToTest_Europe2 %>% group_by(Elder_clade) %>% summarise(n()) %>% print()
+ToTest_Europe2 %>% glmer( as.factor(Elder_clade) ~ Age + Sex + BMI + scale(number_reads) + (1|study_name), ., family=binomial ) %>% summary()
+
+```
+
