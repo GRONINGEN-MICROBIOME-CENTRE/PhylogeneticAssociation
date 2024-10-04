@@ -21,6 +21,7 @@ library(ggtree)
 library(ggtreeExtra)
 library(ggnewscale)
 library(lmerTest)
+library(phytools)
 
 setwd("/mnt/project/Make_Associations/Git/PhylogeneticAssociation/Analyses_revision")
 Process_RDS = function(Data){
@@ -45,6 +46,29 @@ Process_tree = function(Tree){
   return(Tree)
   
 }
+Clean_names =  function(Name){
+  'Samples from 500FG FSK need everything after _ to be removed. If _metaphlan4 is attached at the end of the name, remove'
+  if ( grepl("HV", Name)) {
+    Name = str_split(Name, "_")[[1]][1]
+  }   
+  Name = str_replace(Name, "_metaphlan4", "") 
+  return(Name)
+}
+Remove_repeated2 = function(Metadata){
+  'Check which samples are repeated (either duplicates or longitudinally) and only picks one from the repeated'
+  set.seed(89777)
+  Metadata %>% group_by(subject_id) %>% summarise(N = n()) %>% arrange(desc(N)) %>% filter(N > 1 ) -> Replicates
+  remove = tibble()
+  for (i in Replicates$subject_id){
+    Metadata %>% filter(subject_id == i) -> Filtered ; Samples = Filtered$ID_anal
+    Keep = sample(Samples, 1)
+    remove = c(remove, Samples[!Samples==Keep] ) 
+  }
+  remove = unlist(remove)
+  Metadata %>% filter(! ID_anal %in% remove) -> Metadata
+  return(Metadata)
+}
+
 
 ```
 

@@ -1,6 +1,8 @@
 ---
 title: "R Notebook"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 Notebook for analyses for reviewers/revision of the manuscript.
@@ -176,9 +178,11 @@ anpan_loo_res = function() {
          elpd_se = comp_mat[2,2])
 }
 
-sim_df = replicate(100, anpan_loo_res(), simplify = FALSE) |>
-  bind_rows()
-
+#This is slow to run, so I have saved the results of the simulation
+#sim_df = replicate(100, anpan_loo_res(), simplify = FALSE) |>
+#  bind_rows()
+#write_tsv(sim_df, "simulation_results.tsv")
+sim_df = read_tsv("simulation_results.tsv")
 
 ```
 
