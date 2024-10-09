@@ -1,0 +1,198 @@
+---
+title: "TechnicalFactors_on_distances"
+output: html_document
+date: "2024-10-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Technical factors on distances
+
+```{r packages}
+set.seed(12234)
+library(tidyverse)
+library(patchwork)
+library(ape)
+library(phytools)
+setwd("/mnt/project/Make_Associations/Git/PhylogeneticAssociation/Analyses_revision")
+
+```
+
+We will replicate supplementary figure 1 panel A, showing that there is a minority of individuals were the strain changes due to sequencing protocol.
+
+
+```{r}
+
+#Read data
+Prefix = "/mnt/project/"
+#1. anpan summary statistics for protocol effect
+read_csv(paste0(Prefix, "Make_Associations/Association/Results/Summaries/Protocol/SequencingProtocol_results.csv") ) -> Tested_SGB
+#2. Metadata samples
+read_tsv(paste0(Prefix, "Make_Associations/Phenotypes/Phenotypes_merged_complete.tsv")) -> Metadata
+
+
+Tested_SGB %>% select(elpd_diff, se_diff,Abs_LowerBound , SGB ) %>% 
+  mutate( LB = elpd_diff - 2*se_diff, UB =  elpd_diff + 2*se_diff  ) %>% 
+  ggplot(aes(x=elpd_diff,y=SGB )) + theme_bw() + geom_point() + geom_errorbar(aes(xmin = LB, xmax = UB), width = 0.2) + geom_vline(xintercept = 0, linetype=2) + labs(y = "SGB", x = "ELPD Difference") + geom_vline(xintercept = -4, linetype=2, color = "red") + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  theme(axis.text.y = element_blank()) + annotate("text", x = -4, y = 100, label = "Threshold for consideration", vjust = 1, color = "red", angle = 90) + 
+  annotate("text", x = 0, y = 100, label = "CI threshold", vjust = 1, angle = 90)
+
+
+```
+
+```{r}
+#Functions
+Clean_names =  function(Name){
+  'Samples from 500FG FSK need everything after _ to be removed. If _metaphlan4 is attached at the end of the name, remove'
+  if ( grepl("HV", Name)) {
+    Name = str_split(Name, "_")[[1]][1]
+  }   
+  Name = str_replace(Name, "_metaphlan4", "") 
+  return(Name)
+}
+Process_tree = function(Tree){
+  read.tree(Tree) -> Tree
+  if (class(Tree) ==  "multiPhylo"){ Tree = Tree[[1]] }
+  Tree = midpoint.root(Tree)
+  #2. Rename labels tree
+  Tree$tip.label %>% sapply(. , Clean_names) -> New_names
+  Tree$tip.label = as.vector(New_names)
+  if ( length(Tree$tip.label) < 100 ) { print("Tree is too small") ; q() }
+  return(Tree)
+  
+}
+Get_distance_dist = function(SGB){
+  Tree = paste0(paste0(Prefix,"Symlink_phylo/IQtree.",SGB, ".TreeShrink.tre"))
+  if (! file.exists(Tree)){ Tree =paste0(paste0(Prefix,"Symlink_phylo/RAxML_bestTree.",SGB, ".TreeShrink.tre"))  }
+  Process_tree(Tree) -> Tree
+  Metadata %>% filter(study_name %in% c("500FG_FSK", "SchirmerM_2016") ) -> Metadata_rep
+  Metadata_rep %>% filter(ID_anal %in% Tree$tip.label ) %>% select(study_name, subject_id, ID_anal) -> Metadata_rep
+  Metadata_rep %>% group_by(subject_id) %>% summarise(N = n()) %>% filter(N > 1) -> Keep
+  Metadata_rep %>% filter(subject_id %in% Keep$subject_id) -> Metadata_rep
+  keep.tip(Tree, Metadata_rep$ID_anal) -> Tree
+  #Get distribution of distances
+  cophenetic.phylo(Tree) -> Distances
+  dist_df <- as.data.frame(as.table(Distances))
+  colnames(dist_df) <- c("rowname", "colname", "distance")
+  as_tibble(dist_df) %>% filter(!rowname==colname) -> dist_df
+  #Add info
+  left_join(dist_df, Metadata_rep, by=c("rowname" = "ID_anal") ) %>% left_join(., Metadata_rep, by=c("colname" = "ID_anal"),  suffix=c("_1", "_2" ) ) -> dist_df
+  dist_df %>% filter(! rowname == colname   ) -> dist_df
+  dist_df %>% mutate(Same_subject =  ifelse( subject_id_1 == subject_id_2, T, F ) ) -> dist_df
+  sd(dist_df$distance) -> Norm_factor
+  dist_df %>% mutate(distance = distance/Norm_factor) -> dist_df
+  #dist_df %>% ggplot(aes(x=distance, fill=Same_subject )) + geom_histogram() + theme_bw() %>% print()
+  return(dist_df)
+}
+
+```
+
+
+Get sample-to-sample distances for all trees in long format
+```{r}
+All_distances = tibble()
+for (SGB in unique(Tested_SGB$SGB) ){
+  Get_distance_dist(SGB) %>% mutate(SGB= SGB) %>% rbind(All_distances, . )  -> All_distances
+}
+print(dim(All_distances))
+
+```
+
+Now, lets take a look at the distribution of distances comparing same vs different subjects
+
+General parameters of the distribution
+```{r}
+print('Same subject')
+filter(All_distances, Same_subject==T)$distance %>% summary()
+print('Different subject')
+filter(All_distances, Same_subject==F)$distance %>% summary()
+```
+Histogram and boxplots of the distribution
+```{r}
+
+#Histogram of distances
+All_distances %>% ggplot(aes(x=distance, fill=Same_subject )) + geom_histogram() + theme_bw() 
+
+#Boxplot of distances no-log
+All_distances %>% ggplot(aes(y= distance , x=Same_subject )) + geom_boxplot(outlier.size = 0.5 ) + theme_bw() + coord_flip() + ylab("Phylogenetic distance") + xlab("Sample pair from same individual") + 
+  theme(
+    text = element_text(size = 16),  # Set the text size for all elements
+    plot.title = element_text(size = 20, face = "bold"),  # Set title text size
+    axis.title = element_text(size = 18, face = "bold"),  # Set axis title text size
+    axis.text = element_text(size = 14),  # Set axis text size
+    axis.ticks = element_line(size = 1.5),  # Set axis tick size
+    legend.text = element_text(size = 14),  # Set legend text size
+    legend.title = element_text(size = 16, face = "bold")  # Set legend title text size
+  ) -> Distr_nolog
+
+
+#Boxplot of distances log
+All_distances %>% ggplot(aes(y= log10(distance), x=Same_subject )) + geom_boxplot(outlier.size = 0.5 ) + theme_bw() + coord_flip() + ylab("Phylogenetic distance (log10)") + xlab("Sample pair from same individual") + 
+  theme(
+    text = element_text(size = 16),  # Set the text size for all elements
+    plot.title = element_text(size = 20, face = "bold"),  # Set title text size
+    axis.title = element_text(size = 18, face = "bold"),  # Set axis title text size
+    axis.text = element_text(size = 14),  # Set axis text size
+    axis.ticks = element_line(size = 1.5),  # Set axis tick size
+    legend.text = element_text(size = 14),  # Set legend text size
+    legend.title = element_text(size = 16, face = "bold")  # Set legend title text size
+  ) -> Distr_log
+
+Distr_nolog | Distr_log
+```
+
+Fraction of pairs above one phylogenetic distance
+```{r }
+
+All_distances %>% filter(Same_subject == T) %>% arrange(desc(distance)) %>% group_by(distance >= 1) %>% summarise(N = n()) -> Outliers_n
+N_outliers = filter(Outliers_n, `distance >= 1` == T)[["N"]]
+N_nooutliers = filter(Outliers_n, `distance >= 1` == F)[["N"]]
+
+print(N_outliers)
+Proportion_above_1perc = N_outliers / (N_outliers + N_nooutliers)
+print(Proportion_above_1perc)
+```
+
+Is it due to sample swaps / contamination ? 
+```{r }
+All_distances %>% filter(Same_subject == T) %>% arrange(desc(distance)) %>% filter(distance > 1) %>% group_by(subject_id_1) %>% summarise(N = n()) %>% arrange(desc(N)) -> N_Taxa_Bigger1
+N_Taxa_Bigger1$N %>% summary()
+N_Taxa_Bigger1 %>% ggplot(aes(x=N)) + geom_histogram() + theme_bw() + scale_x_continuous(breaks = seq(1, 11, by = 1)) 
+```
+Which are the species that tend to have more diversity in same samples?
+
+```{r }
+All_distances %>% filter(Same_subject == T) %>% arrange(desc(distance)) %>% filter(distance > 1) %>% group_by(SGB) %>% summarise(N = n()) -> N_Species_Bigger1
+
+N_Species_Bigger1 %>% arrange(desc(N))
+N_Species_Bigger1$N %>% summary()
+N_Species_Bigger1 %>% ggplot(aes(x=N)) + geom_histogram() + theme_bw() 
+
+```
+
+
+Test group differences via label permutations
+
+```{r }
+All_distances %>% select(distance, Same_subject) -> To_Test
+To_Test %>% t.test(distance ~ Same_subject, . ) -> Original
+Original$statistic -> orginal_t
+Permutation_n = 1000
+Permuted_t = c()
+set.seed(1341341)
+for (i in seq(1, Permutation_n)){
+  To_Test_p = To_Test
+  sample(To_Test$Same_subject) -> To_Test_p$Same_subject
+  To_Test_p %>% t.test(distance ~ Same_subject, . ) -> Permuted
+  Permuted_t = c(Permuted_t, Permuted$statistic)
+}
+sum(Permuted_t >= orginal_t)/ Permutation_n
+
+
+```
+
+
+
+
