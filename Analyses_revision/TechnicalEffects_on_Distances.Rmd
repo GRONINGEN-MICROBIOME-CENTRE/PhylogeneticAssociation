@@ -194,5 +194,47 @@ sum(Permuted_t >= orginal_t)/ Permutation_n
 ```
 
 
+## Explore whether differences in coverage are reflected at the strain level
+
+```{r }
+#Read depth of coverage in marker genes of different species
+Coverage_info = read_rds("/mnt/project/Samples_tree/Coverages_dutch.rds")
+Coverage_info %>% filter(!grepl("LL", X1)) -> Coverage_info #Remove Gacesa2022 8,000 samples
+#Filter species
+Coverage_info$X2 = Coverage_info$X2 %>% sapply( function( x ){ str_split(x, "\\|")[[1]] -> y ; y[length(y)]  }  )
+Coverage_info %>% filter(X2 %in%  Tested_SGB$SGB ) -> Coverage_info
+#Filter samples
+Coverage_info$X1 = Coverage_info$X1 %>% sapply( Clean_names )
+Coverage_info %>% filter(X1 %in% Metadata$ID_anal ) %>% left_join(Metadata, by=c("X1"="ID_anal") ) %>%
+  dplyr::filter(study_name %in% c("SchirmerM_2016", "500FG_FSK" ) ) -> Coverage_info
+
+```
+
+Now, per each of the SGBs, compare distances with difference of coverage
+
+```{r }
+
+Statistics_cor = tibble()
+Combined = tibble()
+for (Species in unique(All_distances$SGB) ){
+ Dist =  All_distances %>% filter(SGB == Species) %>% filter(Same_subject == T)
+ Coverage_info %>% filter(X2 == Species) %>% select(study_name, X3, subject_id) %>% spread(study_name, X3) %>% mutate(Delta_depth = `500FG_FSK` - SchirmerM_2016 ) %>% drop_na() -> Coverage_taxa
+ Summary_diff_protocol = Coverage_taxa$Delta_depth %>% summary()
+ names(Summary_diff_protocol) = c("Min_delta","1Q_delta","Median_delta","Mean_delta","3Q_delta","Max_delta")
+ Summary_diff_protocol = as.data.frame(t(as.matrix(Summary_diff_protocol)))
+ 
+ Dist %>% rename(subject_id = subject_id_1) %>% left_join(Coverage_taxa, by="subject_id") %>% drop_na() %>% mutate(Delta_depth_abs =abs(Delta_depth) ) -> Coverage_taxa
+ 
+ cor.test( Coverage_taxa$distance, Coverage_taxa$Delta_depth_abs , method = "spear",exact = FALSE, alternative = "greater"  ) -> Stats
+ Statistics_cor %>% rbind ( tibble(SGB =Species, Rho_spear = Stats$estimate, P = Stats$p.value  )   %>% cbind( Summary_diff_protocol ) ) -> Statistics_cor
+ Combined %>% rbind( Coverage_taxa ) -> Combined
+}
+Statistics_cor %>% as_tibble() %>% arrange(P) %>% mutate(FDR = p.adjust(P, "fdr") ) -> Statistics_cor
+
+Statistics_cor
+
+```
+
+
 
 
