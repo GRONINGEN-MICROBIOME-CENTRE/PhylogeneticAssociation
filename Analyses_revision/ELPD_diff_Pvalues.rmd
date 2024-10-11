@@ -123,6 +123,11 @@ read_csv("../../../Association/Results_PerContienent_Asia_ElderInfant.csv") %>% 
 
 
 ```
+We will save the summary stats so that it is easily accesible for people wanted to see these P-values
+```{r }
+write_tsv(df, 'SummaryStatisticsAssocations.tsv')
+
+```
 
 
 
