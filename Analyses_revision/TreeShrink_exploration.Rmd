@@ -1,0 +1,127 @@
+---
+title: "TreeShrink_Effect_Phylogeny"
+output: html_document
+date: "2024-10-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Study the effect of threeshrink on the phylogenetic trees
+
+```{r packages}
+library(tidyverse)
+library(phytools)
+library(ape)
+library(vegan)
+library(ggtree)
+library(ggtreeExtra)
+library(ggnewscale)
+```
+
+```{r functions}
+Prepare_tree = function(Tree){
+  read.tree(Tree) -> Tree
+  if (class(Tree) ==  "multiPhylo"){ Tree = Tree[[1]] }
+  Tree = midpoint.root(Tree)
+  Clean_names =  function(Name){
+    'Samples from 500FG FSK need everything after _ to be removed. If _metaphlan4 is attached at the end of the name, remove'
+    if ( grepl("HV", Name)) {
+      Name = str_split(Name, "_")[[1]][1]
+    }   
+    Name = str_replace(Name, "_metaphlan4", "") 
+    return(Name)
+  }
+  Tree$tip.label %>% sapply(. , Clean_names) -> New_names
+  Tree$tip.label = New_names
+
+  
+  return(Tree)
+}
+
+Find_trees = function(Location, Tree_l){
+  if ( grepl ("IQ", Tree_l ) ) {
+    Treeshrink = paste0(Location, "treeshrink/" )
+    Treeshrink <- list.files(path = Treeshrink, pattern = "\\.treefile$", full.names = TRUE)
+    rawtree <- list.files(path = Location, pattern = "\\.treefile$", full.names = TRUE)
+
+    if (length( Treeshrink ) != 1 || length( rawtree ) != 1 ){ return(list( 'Raw' = NA, 'Shrinked' = NA )) }
+    
+  } else {
+    #treeshirnk result
+    Treeshrink = paste0(Location, "treeshrink/", Tree_l )
+    #raw tree result
+    tre_files <- list.files(path = Location, pattern = "\\.tre$", full.names = TRUE)
+    rawtree =  tre_files[grepl("RAxML_bestTree", tre_files)]
+    if (length( rawtree ) < 1 ){ return(list( 'Raw' = NA, 'Shrinked' = NA )) }
+  }
+  shrinked = Prepare_tree(Treeshrink)
+  raw = Prepare_tree(rawtree)
+
+  return( list( 'Raw' = raw, 'Shrinked' =  shrinked) )
+  
+}
+
+
+```
+
+We will start by selecting the Species that were used for analysis
+```{r Tree size}
+Sizes = read_tsv("/mnt/project/Make_Associations/Association/Tree_sizes2.txt")
+Sizes %>% filter(N_tips >= 300) -> ForAnalysis
+ForAnalysis
+```
+Now, we will identify the location of the raw trees and the treeshrink trees
+```{r Get trees}
+Location_trees = "/mnt/project/Phylogenies"
+DF_size = tibble()
+for (Tree_l in ForAnalysis$Tree){
+  Tree_l <- sub("\\s+$", "", Tree_l)
+
+  SGB = str_split(Tree_l, "\\.")[[1]][[2]]
+  Location = paste0( Location_trees, "/", SGB, "/")
+  Trees = Find_trees(Location, Tree_l)
+  
+  DF_size %>% rbind( tibble(SGB = SGB ,Raw_tips = length(Trees$Raw$tip.label) , Shrinked_tips = length(Trees$Shrinked$tip.label)   ) ) -> DF_size
+  
+}
+
+```
+
+Check correlation and extremes
+```{r shrinking }
+DF_size %>% mutate(Dif = Raw_tips - Shrinked_tips) -> DF_size
+
+print("Equal size")
+DF_size %>% group_by(Dif==0) %>% summarise(n())
+print("Distribution")
+DF_size$Dif %>% summary()
+DF_size %>% ggplot(aes(x=Dif)) + geom_histogram() + theme_bw()
+
+```
+Who are the most changing taxa? Can we check the difference in the trees?
+```{r most changing }
+DF_size %>% arrange(desc(Dif)) %>% head(5) -> Most_chaning
+DF_size %>% mutate( Check = ifelse(SGB %in% Most_chaning$SGB, T, F) ) %>% ggplot(aes(x=Dif, fill=Check)) + geom_histogram() + theme_bw()
+
+
+Make_plot_Shrink = function( SGB  ){
+  
+  Tree_l = ForAnalysis$Tree[ grepl(SGB, ForAnalysis$Tree) ]
+  
+  Location = paste0( Location_trees, "/", SGB, "/")
+  Trees = Find_trees(Location, Tree_l)
+  
+  Not_common = setdiff(Trees$Raw$tip.label, Trees$Shrinked$tip.label)
+  Annotation_shrink = tibble( Sample = Trees$Raw$tip.label ) %>% mutate(Shrinked = ifelse(Sample %in% Not_common,  T, F) )
+  
+  ggtree(Trees$Raw, layout="fan", open.angle=15, size=0.1) %<+% Annotation_shrink +
+    geom_tippoint(aes(color = Shrinked)) +  
+  scale_color_manual(values = c("TRUE" = "red", "FALSE" = "grey")) + ggtitle(SGB) -> Plot
+  print(Plot)
+}
+
+Most_chaning$SGB %>% sapply( Make_plot_Shrink )
+
+```
