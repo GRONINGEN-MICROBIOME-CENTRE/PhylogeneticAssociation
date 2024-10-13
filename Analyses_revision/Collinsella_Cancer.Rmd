@@ -1,0 +1,420 @@
+---
+title: "Collinsella_aerofaciens_Cancer"
+output: html_document
+date: "2024-10-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Investigation Collinsella assocation with cancer
+
+```{r packages}
+set.seed(12234)
+library(tidyverse)
+library(anpan)
+library(ape)
+library(ggtree)
+library(ggtreeExtra)
+library(ggnewscale)
+library(lmerTest)
+library(phytools)
+setwd("/mnt/project/Make_Associations/Git/PhylogeneticAssociation/Analyses_revision")
+```
+
+```{r useful functions}
+
+Process_RDS = function(Data){
+  read_rds(Data) -> Data
+  Data$model_input -> Info
+  Data$pglmm_fit$summary() -> Data
+  print("Preparing information table")
+  Data %>% filter( grepl("phylo", variable))  %>% filter(! grepl("std", variable)) %>% mutate(sample_id = factor(c("-", as.character(Info$sample_id)))) %>%
+    select(sample_id, median) %>% rename(phylo_effect_median = median) -> Phylo
+  left_join(Info, Phylo) %>% mutate(sample_id = as.character(sample_id)) -> Phylo
+  return(Phylo)
+}
+Process_tree = function(Tree){
+  read.tree(Tree) -> Tree
+  if (class(Tree) ==  "multiPhylo"){ Tree = Tree[[1]] }
+  Tree = midpoint.root(Tree)
+  #2. Rename labels tree
+  print("Processing tree")
+  Tree$tip.label %>% sapply(. , Clean_names) -> New_names
+  Tree$tip.label = as.vector(New_names)
+  if ( length(Tree$tip.label) < 100 ) { print("Tree is too small") ; q() }
+  return(Tree)
+  
+}
+Clean_names =  function(Name){
+  'Samples from 500FG FSK need everything after _ to be removed. If _metaphlan4 is attached at the end of the name, remove'
+  if ( grepl("HV", Name)) {
+    Name = str_split(Name, "_")[[1]][1]
+  }   
+  Name = str_replace(Name, "_metaphlan4", "") 
+  return(Name)
+}
+Remove_repeated2 = function(Metadata){
+  'Check which samples are repeated (either duplicates or longitudinally) and only picks one from the repeated'
+  set.seed(89777)
+  Metadata %>% group_by(subject_id) %>% summarise(N = n()) %>% arrange(desc(N)) %>% filter(N > 1 ) -> Replicates
+  remove = tibble()
+  for (i in Replicates$subject_id){
+    Metadata %>% filter(subject_id == i) -> Filtered ; Samples = Filtered$ID_anal
+    Keep = sample(Samples, 1)
+    remove = c(remove, Samples[!Samples==Keep] ) 
+  }
+  remove = unlist(remove)
+  Metadata %>% filter(! ID_anal %in% remove) -> Metadata
+  return(Metadata)
+}
+one_hot_encode <- function(df, column_name) {
+  df %>%
+    separate_rows({{column_name}}, sep = ";") %>%
+    pivot_wider(names_from = {{column_name}}, values_from = {{column_name}}, values_fn = length, values_fill = 0)
+}
+
+c25 <- c("dodgerblue2", "#E31A1C", "green4","#6A3D9A", "#FF7F00", "black", "gold1", "skyblue2", "#FB9A99", "palegreen2","#CAB2D6", "#FDBF6F", "gray70", "khaki2",
+         "maroon", "orchid1", "deeppink1", "blue1", "steelblue4","darkturquoise", "green1", "yellow4", "yellow3","darkorange4", "brown")
+
+```
+
+Read anpan assocaitons for NA and Europe and merge
+```{r read anpan data, echo=FALSE}
+Process_RDS("/mnt/project/Make_Associations/Association/Results/Continent_stratified/Age,Country_Europe/Models/t__SGB14546_group/melanoma/Model.rds") -> melanoma_europe
+Process_RDS("/mnt/project/Make_Associations/Association/Results/Continent_stratified/Age,Country_North_America/Models/t__SGB14546_group/melanoma/Model.rds") -> melanoma_NA
+
+#Merge North American and European results
+rbind(melanoma_europe %>% mutate(Continent = "Europe") , melanoma_NA %>% mutate(Continent = "North_America") ) -> Phylo
+```
+
+Prepare covariates
+```{r covariates}
+#Add other covariates: Include desired covariates in the select statment
+read_tsv("/mnt/project/Make_Associations/Phenotypes/Phenotypes_merged_complete.tsv") -> Phenos
+Phenos %>% select(study_name, ID_anal, PC, Sex) %>% rename(sample_id= ID_anal) %>% left_join(Phylo, . ) -> Info
+
+#Add study-specific covariates
+read_tsv("/mnt/project/Make_Associations/Phenotypes/Specific/McCullochJA.tsv") %>% select(sample_id, subject_id, previous_therapy, treatment, RECIST) %>% rename(ID_anal = sample_id)  -> MC_meta
+MC_meta %>% one_hot_encode(treatment)-> MC_meta2
+read_tsv("/mnt/project/Make_Associations/Phenotypes/Specific/Leeka2022.tsv") %>% select(sample_id, subject_id, history_of_therapy, RECIST) %>% rename(ID_anal = sample_id)  -> LK_meta
+read_tsv("/mnt/project/Make_Associations/Phenotypes/Specific/Franke2017.tsv") %>% select(sample_id, subject_id, RECIST) %>% rename(ID_anal = sample_id)  -> Franke_meta
+Franke_meta$ID_anal %>% sapply(function(x){str_split(x, "_")[[1]][2] }) %>% as.vector() -> Franke_meta$ID_anal
+
+
+Info %>% rename(ID_anal = sample_id) %>% left_join(MC_meta2, by="ID_anal") %>% left_join(LK_meta, by="ID_anal") %>% left_join(Franke_meta, by="ID_anal") -> Info
+Info  %>% mutate(Study = ifelse(melanoma == 1|PC==1 , study_name, "control_study") )  -> Info
+Info %>% mutate(RECIST = ifelse(is.na(RECIST.x) & is.na(RECIST.y) & is.na(RECIST), NA, ifelse(!is.na(RECIST.x), RECIST.x, ifelse( !is.na(RECIST.y), RECIST.y, RECIST  ) )) ) -> Info
+Info %>% mutate(PC = ifelse(PC == 1, T, F) ) -> Info
+```
+
+Prepare tree
+```{r }
+#Read Tree
+Tree = Process_tree("/mnt/project/Symlink_phylo/IQtree.t__SGB14546_group.TreeShrink.tre")
+Phenos %>% select(ID_anal, study_name, melanoma, PC, Sex) %>% rename(sample_id= ID_anal) %>% filter(sample_id %in% Tree$tip.label ) %>% mutate(melanoma = ifelse(is.na(melanoma), 0 , melanoma ), PC=ifelse(is.na(PC), 0, PC ) )  -> InfoAll
+keep.tip(Tree, Info$ID_anal) -> Tree
+
+#Select MRCA clade
+#Select clade
+Names = filter(Info, study_name == "WindTT_2020")$ID_anal
+match( Names , Tree$tip.label) -> CHECK
+common_ancestor <- getMRCA(Tree, CHECK)
+#clade members
+Tree$tip.label[getDescendants(Tree, 3760)] -> Members_clade
+Members_clade[!is.na(Members_clade)] -> Members_clade
+Info %>% mutate(Melanoma_clade = ifelse(ID_anal %in% Members_clade, T, F) ) -> Info
+Info %>% mutate(Country_sample = ifelse(Country %in% c("NLD", "GBR", "USA", "CHE"), Country, "Other" ) ) -> Info
+
+```
+
+Make tree plot
+```{r }
+ggtree(Tree, layout="fan", open.angle=15, size=0.1) %<+% Info  -> p
+
+p + geom_fruit( geom="geom_tile", mapping = aes(fill=phylo_effect_median), width=0.03,offset=0.1) + scale_fill_viridis_c(option = "magma") +
+
+  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=melanoma), width=0.03,offset=0.1) + scale_fill_manual(values=c("TRUE"= "#E31A1C", "FALSE"="white") )  + 
+
+  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=PC), width=0.03,offset=0.1) + scale_fill_manual(values=c("TRUE"= "blue1", "FALSE"="white") )  + 
+  
+  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Study), width=0.03,offset=0.1 ) +     scale_fill_manual(values=c("control_study"="grey", "FrankelAE_2017"="yellow3", "WindTT_2020" = "orchid1", "LeeKA_2022"="skyblue2","McCullochJA_2022"="black", "PetersBA_2019"="darkorange4", PernigoniN_2021="steelblue4"   ) ) +
+  
+  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Country_sample), width=0.03,offset=0.1 ) + scale_fill_manual(values = c("GBR"="#6A3D9A" , "NLD"="#FB9A99" , "USA"="brown" , "CHE" = "#FDBF6F" ,  "Other"="grey" ) ) +
+  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Continent), width=0.03,offset=0.1 ) + scale_fill_manual(values=c("Europe" = "#1f77b4", "North_America" = "#ff7f0e")) +
+  geom_balance(node=3760  , fill="grey", color=NA, alpha=0.3)
+
+```
+
+Asssociation with other phenotypes avaialable in cancer cohorts
+```{r }
+#MELANOMA#
+Info %>% glmer(melanoma ~ Melanoma_clade + Age + (1|Country) , . ,  family=binomial()) %>% summary()
+
+
+#MEDICATION#
+Info %>% filter(! is.na(nivolumab)) %>% filter(!is.na(Age)) %>% 
+  glm(Melanoma_clade ~ nivolumab + antacids + H2RA + psychotropics + PPI + pembrolizumab + `peg-IFN` +methotrexate + `anti-PD1`, . , family=binomial()  ) %>% summary()
+
+#PREVIOUS THERAPY#
+Info %>% filter(! is.na(nivolumab)) %>% filter(!is.na(Age)) %>% 
+  glm(Melanoma_clade ~ previous_therapy , . , family=binomial()  ) %>% summary() #effect=1.9, P=0.089
+
+Info %>% filter(! is.na(history_of_therapy)) %>% filter(!is.na(Age)) %>% 
+  glm(Melanoma_clade ~ history_of_therapy , . , family=binomial()  ) %>% summary() #effect=-0.28, P=0.4
+
+
+#RECIST#
+Info %>% filter(melanoma == T & ! is.na(RECIST)) %>% 
+  lme4::glmer( Melanoma_clade ~ RECIST + Age + (1|study_name), . , family=binomial() ) -> T1 
+
+Info %>% filter(melanoma == T & ! is.na(RECIST)) %>% 
+  lme4::glmer( Melanoma_clade ~  Age + (1|study_name), . , family=binomial() ) -> T0 
+anova(T1, T0)
+
+```
+
+Fisher enrichment test and check studies within clade 
+```{r }
+Info %>% filter(Melanoma_clade == T) %>% group_by(melanoma) %>% summarise(n()) #123 Melanoma, 61 no melanoma
+Info %>% filter(Melanoma_clade == F) %>% group_by(melanoma) %>% summarise(n())
+
+data.frame(c(123, 61), c(47, 3085)) %>% fisher.test()
+
+
+Info %>% filter(Melanoma_clade == T) %>% group_by(study_name, melanoma) %>% summarise(N = n())   #5 melanoma studies, 11 not melanoma
+
+
+```
+
+Check enrichment of prostate cancer
+
+```{r }
+#PernigoniN_2021 is a study with prostate cancer
+Info  %>% group_by(Melanoma_clade,study_name=="PernigoniN_2021") %>% summarise(N = n())  %>% spread(Melanoma_clade, N ) %>% as.data.frame() %>% column_to_rownames('study_name == "PernigoniN_2021"') %>% fisher.test()
+
+
+Info %>% filter(study_name=="PernigoniN_2021") %>% group_by(Melanoma_clade, Country) %>% summarise(n()) 
+```
+Add metadata PC study and test if any covariate is enriched in clade
+```{r }
+
+read_tsv("/mnt/project/Make_Associations/Phenotypes/Specific/PernigoniN_meta.tsv") -> Meta_per
+Info %>% filter(study_name=="PernigoniN_2021") %>% select(ID_anal, Age, Country, Melanoma_clade) %>% left_join(Meta_per %>% rename(ID_anal = sample_id ) %>% select(-c(country, study_name)) ) -> Info_pernigoni
+Info_pernigoni %>% glmer(Melanoma_clade ~ Age  + (1|location) + disease_subtype, . , family=binomial()  ) %>% summary()
+Info_pernigoni %>% mutate(treatment = ifelse( is.na(treatment), "None", treatment ) )  %>% glm(Melanoma_clade ~ Age   + treatment, . , family=binomial()  ) %>% summary()
+```
+
+Is there any other disease enriched in the clade?
+```{r }
+#any other cohort of interst?
+Phenos %>% filter(ID_anal %in% filter(Info, Melanoma_clade==T)$ID_anal ) %>% group_by(disease, study_name) %>% summarise(n())
+Info %>% left_join(., Phenos %>% select(ID_anal, disease) ) %>% filter(study_name=="LiJ_2014") %>% group_by(Melanoma_clade==T, disease ) %>% summarise(n()) 
+```
+
+
+Using data from SchirmerM_2016, check if clade is assocatied ith hormone levels
+```{r }
+Info %>% filter(study_name == "SchirmerM_2016") %>% group_by(Melanoma_clade) %>% summarise(n())
+
+Analyse_500FG = function(File){
+  Info %>% select(-subject_id) %>% left_join( select(Phenos, c(ID_anal, subject_id) ) ) %>% filter(study_name == "SchirmerM_2016")  %>% select(Melanoma_clade, subject_id, Age, Sex) -> Analysis_500FG
+  read_tsv(File) %>% rename(subject_id = ID_500FG) %>% left_join(Analysis_500FG, . ) -> Analysis_500FG
+  Inverse_rank_normal = function(Measurement){qnorm((rank(Measurement,na.last="keep")-0.5)/sum(!is.na(Measurement))) }
+  Results_cytokines = tibble()
+  for (Cytokine in colnames(Analysis_500FG)[4:dim(Analysis_500FG)[2]] ){
+    Analysis_500FG2 = Analysis_500FG 
+    Analysis_500FG2[Cytokine] = Inverse_rank_normal(Analysis_500FG2[Cytokine])
+    Formula = as.formula(paste0( "`", Cytokine, "` ~ Melanoma_clade + Age + Sex" ))
+    Analysis_500FG2 %>% filter(! is.na( !!sym(Cytokine) ) )  %>% lm(Formula, . ) %>% summary() -> Res
+    Res$coefficients["Melanoma_cladeTRUE",]  %>% t() %>% as_tibble() %>% mutate(Measurement = Cytokine) %>% rbind(Results_cytokines,.) -> Results_cytokines
+  }
+  Results_cytokines %>% mutate(FDR =  p.adjust(`Pr(>|t|)`, "fdr")  ) %>% arrange(`Pr(>|t|)`) -> res
+  return(list(res, Analysis_500FG))
+}
+Hormones_analysis = Analyse_500FG("/mnt/project/Make_Associations/Phenotypes/Specific/Hormones.tsv")
+Hormones_analysis[[2]] %>% ggplot(aes(x=Melanoma_clade, y = B_TESC)) + geom_boxplot() + theme_bw() + ggforce::geom_sina()
+Hormones_analysis[[1]]
+
+```
+
+## Functional analysis
+
+```{r }
+Prepare_genes = function(){
+  #others
+  DF1 = read_tsv("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/Gene_presence/t__SGB14546_group.tsv") %>% filter(Completeness>=90 &  Contamination<5)
+  DF2 = read_tsv("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/Analysis_melanoma/Presence_gene_long.tsv")
+  QC= read_tsv("/mnt/project/Make_Associations/Functional_enrichment/Assemblies_LEE/Cancer_Collinsella_checkm.tsv")
+  QC %>% filter(Completness < 90 | Contamination>=5) -> RM
+  DF2 %>% filter(! ID_anal %in% RM$Sample ) -> DF2
+  
+  DF1 %>% select(Study, Sample, Gene ) %>% rename(ID_anal = Sample) -> DF1
+  DF2 %>% rename(Study = Dataset) -> DF2
+  rbind(DF1,DF2) -> DF
+  DF %>% mutate(value = 1) %>% pivot_wider(names_from = Gene, values_from = value, values_fill = 0) %>% return()
+  
+}
+Prepare_genes() -> Gene_info
+Gene_info %>% filter(ID_anal %in% Info$ID_anal) -> Gene_info
+Info %>% mutate(has_MAG = ifelse(ID_anal %in% Gene_info$ID_anal, T, F) ) -> Info
+Info %>% group_by(has_MAG, Melanoma_clade) %>% summarise(n())
+
+```
+Gene enrichment test
+```{r }
+GeneEnrichmentTest = function(DF_uniref, UniRef90_wide, Test = "logistic" ){
+  DF_uniref %>% filter(has_MAG == T)  %>% distinct(ID_anal, .keep_all=T) ->DF_uniref
+  DF_uniref%>% group_by(Melanoma_clade) %>% summarise(n()) %>% print()
+  
+  DF_uniref %>% full_join(UniRef90_wide , by="ID_anal" ) -> DF_uniref
+  
+  DF_uniref %>% filter(Melanoma_clade==T) %>% select(colnames(UniRef90_wide%>% select(-c(ID_anal, Study) ) ))  %>% apply(2, function(x){ sum(x)/length(x) } ) -> Prevalences_cent
+  
+  DF_uniref %>% filter(Melanoma_clade==F) %>% select(colnames(UniRef90_wide %>% select(- c(ID_anal,Study) )))  %>% apply(2, function(x){ sum(x)/length(x) } ) -> Prevalences_nocent
+
+  #Test only if difference of prevalence is big enough
+  abs(Prevalences_cent - Prevalences_nocent) -> dif_Prevalence_cent
+  Genes_test_c = names(dif_Prevalence_cent)[dif_Prevalence_cent>0.3]
+  
+  Results_test_c=tibble()
+  N = 0
+  
+  for (Gene in Genes_test_c ){
+    DF_uniref %>% filter(!is.na(!!sym(Gene))) -> Info_with_genes2
+    mean(Info_with_genes2[Gene] %>% as_vector() ) -> Prevalence
+    mean( filter(Info_with_genes2, Melanoma_clade==T  )[Gene] %>% as_vector()) -> Prevalence_high
+    mean( filter(Info_with_genes2, Melanoma_clade==F  )[Gene] %>% as_vector()) -> Prevalence_low
+    
+    N = N + 1    
+
+    if (Test == "Fisher"){
+      #Add pseudocount
+      Info_with_genes2 %>% group_by(!!sym(Gene), Melanoma_clade) %>% summarise(N = n()) %>% drop_na() %>% spread(Melanoma_clade, N) %>% ungroup() %>% as.data.frame() %>% column_to_rownames(Gene) -> Table_test
+      if (dim(Table_test)[1] < 2){ next }
+      Table_test[is.na(Table_test)] = 0
+      Table_test = Table_test + 1 #Add pseudcount
+  
+      Test_p = fisher.test(Table_test)
+      Fold_Change = Prevalence_high/Prevalence_low
+      Results = tibble( Prevalence_rest = Prevalence_low, Prevalence_clade = Prevalence_high, Fold=Fold_Change, P = Test_p$p.value, Odds_ratio = Test_p$estimate, Lower_bound = Test_p$conf.int[1], Upper_bound = Test_p$conf.int[2], Gene = Gene     ) 
+    Results_test_c = rbind(Results_test_c  , Results %>% mutate(Gene=Gene) ) 
+    } else if ( Test == "logistic" ){
+      if ( Prevalence_low !=0 & Prevalence_high !=0 ){
+        Formula = paste0( Gene, " ~ Melanoma_clade + Completeness + Contamination" )
+        Info_with_genes2 %>% glm(Formula , . , family=binomial()) %>% summary() -> Results
+        Res = Results$coefficients %>% as.data.frame() %>% rownames_to_column("Feature")  %>% filter(Feature %in%  c("Melanoma_cladeTRUE")) %>% as_tibble() %>% mutate(Prevalence_rest = Prevalence_low, Prevalence_clade = Prevalence_high, Gene= Gene  )
+        Res %>% rbind(Results_test_c, . ) -> Results_test_c
+      } else { 
+        Res = tibble( Gene = Gene, Prevalence_rest = Prevalence_low, Prevalence_clade = Prevalence_high, Feature="Melanoma_cladeTRUE",Estimate =NA, `Std. Error`=NA, `z value`=NA, `Pr(>|z|)`=NA  )
+        if (dim(Results_test_c)[1] == 0 ){  Results_test_c = Res
+        } else { rbind(Results_test_c,  Res) -> Results_test_c }
+      }
+  }
+
+  }
+  return(Results_test_c)
+}
+
+
+Results_test = GeneEnrichmentTest( DF_uniref =  Info,UniRef90_wide = Gene_info , Test = "Fisher") 
+write_tsv(Results_test, "Supp_Tables_update/Collinsella_GeneEnrichment_melanomaClade_highQMAGs.tsv")
+
+```
+
+
+Pathway completion
+
+```{r }
+read_rds("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/For_enrichment/UniRef90/ec.rds") -> ECs
+ECs_tibble <- enframe(ECs, name = "EC", value = "UniRef90")
+ECs_tibble %>% separate_rows(UniRef90, sep="\t") -> ECs_tibble
+Enrichment_tables = read_rds("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/For_enrichment/metacyc_pathways.rds")
+Translate_EC_to_reaction = read_tsv("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis//For_enrichment/EC_to_reaction.tsv.gz")
+Translate_EC_to_reaction %>%  separate_rows(Pathways, sep = ",") -> Translate_EC_to_reaction
+
+Results_test %>% left_join(ECs_tibble %>% rename(Gene = UniRef90), relationship = "many-to-many" ) -> merged_ec
+merged_ec %>% drop_na() %>% group_by(Gene) %>% summarise(n()) #319/1,606 annotated
+
+merged_ec %>% left_join(Translate_EC_to_reaction %>% rename(EC = ec)) %>% distinct() -> Merged_info
+```
+Test
+```{r }
+
+Enrichment_tables %>% stack() %>% as_tibble() %>% rename(Reaction =values , Pathways = ind  ) -> Pathwyas_tibble
+Pathwyas_tibble %>% group_by(Pathways) %>% summarise(N = n()) -> Pathways_numbers
+Results_test_pathway=tibble()
+Completedness_total = tibble(ID_anal = Info$ID_anal)
+
+Info_with_genes= Info %>% left_join(Gene_info)
+
+for (Path in unique(Merged_info$Pathways) ){
+  print(Path)
+  if(is.na(Path)){ next }
+  Translate_EC_to_reaction %>% filter(Pathways == Path) -> ECs_to_check
+  Denominator =  filter(Pathways_numbers, Pathways == Path)$N
+  ECs_tibble %>% filter(EC %in% ECs_to_check$ec) -> ECs_to_check
+  Info_with_genes  %>% select( c(ID_anal, any_of(ECs_to_check$UniRef90 ) ) ) ->N_pathway
+  
+  N_pathway %>% gather(UniRef90, value ,colnames(select(N_pathway, -ID_anal)) )  %>% left_join(ECs_to_check) %>% group_by(ID_anal, EC) %>% summarise(C = sum(value)) %>% mutate(Numerator = ifelse(C > 1 , 1, C ) ) %>% group_by(ID_anal) %>% summarise(N = sum(Numerator)) %>% 
+    mutate(Fraction_complete = N/Denominator  ) %>% left_join( select(Info_with_genes, c(ID_anal,  Melanoma_clade) ) ) -> For_test
+  For_test %>% drop_na() -> For_test
+  
+  wilcox.test( filter(For_test, Melanoma_clade == T)$Fraction_complete, filter(For_test, Melanoma_clade == F)$Fraction_complete, exact = F) -> Result
+  
+  For_test %>% group_by(Melanoma_clade) %>% summarise(Median_completion = median(Fraction_complete) ) -> Result_info
+  
+  tibble(Pathway = Path, P=Result$p.value, Median_completion_clade = filter(Result_info,Melanoma_clade == T)$Median_completion,Median_completion_noclade = filter(Result_info,Melanoma_clade == F)$Median_completion   ) %>% rbind(Results_test_pathway, .) -> Results_test_pathway
+  For_test %>% select(ID_anal, Fraction_complete) -> To_save
+  colnames(To_save)[2] = Path
+  left_join(Completedness_total, To_save, by="ID_anal") %>% as_tibble() -> Completedness_total
+}
+Results_test_pathway %>% arrange(P) %>% mutate( FDR = p.adjust(P, "fdr") ) -> Results_test_pathway
+
+write_tsv(Results_test_pathway, "Supp_Tables_update/Collinsella_PathCompletion_melanomaClade_highQMAGs.tsv")
+
+```
+
+
+Enrichment
+
+```{r }
+Run_enrichment = function(Summary_stats, Table,Plot=F){
+  if ("z value" %in% colnames(Summary_stats) ){
+    Summary_stats %>%  arrange(desc(`z value`))-> R1
+    ranks = R1$`z value`
+  } else { 
+    Summary_stats %>%  arrange(desc(log10(Odds_ratio)))-> R1
+    ranks = R1$Fold
+  }
+  #Prepare ranks
+  
+  names(ranks) = as.character(R1$Gene)
+  #Run GSEA
+  fgseaRes <- fgsea::fgsea(Table, ranks, scoreType = "pos")
+  
+  if (Plot == T){
+    topPathwaysUp <- fgseaRes[ES > 0][head(order(pval), n=10), pathway]
+    topPathwaysDown <- fgseaRes[ES < 0][head(order(pval), n=10), pathway]
+    topPathways <- c(topPathwaysUp, rev(topPathwaysDown))
+    fgsea::plotGseaTable(Table[topPathways], ranks, fgseaRes,  gseaParam=0.5)
+  }
+  
+  return(fgseaRes)
+}
+
+```
+
+```{r }
+
+Run_enrichment(merged_ec %>% left_join(Translate_EC_to_reaction %>% rename(EC = ec)) %>% distinct() %>% dplyr::mutate(Odds_ratio =  log10(Odds_ratio) ) %>%  dplyr::rename(`z value` = Odds_ratio ) %>% mutate(Gene = Reaction)   ,  Table=Enrichment_tables )  %>% as_tibble() %>% arrange(pval) -> R_reaction
+R_reaction %>% filter(padj < 0.05) 
+
+write_tsv(R_reaction, "Supp_Tables_update/Collinsella_PathwayEnrichment_melanomaClade_highQMAGs.tsv")
+
+```
+
+
+
+
