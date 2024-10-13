@@ -1,0 +1,272 @@
+---
+title: "Bifido_subspecies"
+output: html_document
+date: "2024-10-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Analyses subspecies bifido longum
+
+```{r cars}
+set.seed(12234)
+library(tidyverse)
+library(anpan)
+library(ape)
+library(ggtree)
+library(ggtreeExtra)
+library(ggnewscale)
+library(lmerTest)
+library(phytools)
+setwd("/mnt/project/Make_Associations/Git/PhylogeneticAssociation/Analyses_revision")
+
+Process_RDS = function(Data){
+  read_rds(Data) -> Data
+  Data$model_input -> Info
+  Data$pglmm_fit$summary() -> Data
+  print("Preparing information table")
+  Data %>% filter( grepl("phylo", variable))  %>% filter(! grepl("std", variable)) %>% mutate(sample_id = factor(c("-", as.character(Info$sample_id)))) %>%
+    select(sample_id, median) %>% rename(phylo_effect_median = median) -> Phylo
+  left_join(Info, Phylo) %>% mutate(sample_id = as.character(sample_id)) -> Phylo
+  return(Phylo)
+}
+Process_tree = function(Tree){
+  read.tree(Tree) -> Tree
+  if (class(Tree) ==  "multiPhylo"){ Tree = Tree[[1]] }
+  Tree = midpoint.root(Tree)
+  #2. Rename labels tree
+  print("Processing tree")
+  Tree$tip.label %>% sapply(. , Clean_names) -> New_names
+  Tree$tip.label = as.vector(New_names)
+  if ( length(Tree$tip.label) < 100 ) { print("Tree is too small") ; q() }
+  return(Tree)
+  
+}
+Clean_names =  function(Name){
+  'Samples from 500FG FSK need everything after _ to be removed. If _metaphlan4 is attached at the end of the name, remove'
+  if ( grepl("HV", Name)) {
+    Name = str_split(Name, "_")[[1]][1]
+  }   
+  Name = str_replace(Name, "_metaphlan4", "") 
+  return(Name)
+}
+Remove_repeated2 = function(Metadata){
+  'Check which samples are repeated (either duplicates or longitudinally) and only picks one from the repeated'
+  set.seed(89777)
+  Metadata %>% group_by(subject_id) %>% summarise(N = n()) %>% arrange(desc(N)) %>% filter(N > 1 ) -> Replicates
+  remove = tibble()
+  for (i in Replicates$subject_id){
+    Metadata %>% filter(subject_id == i) -> Filtered ; Samples = Filtered$ID_anal
+    Keep = sample(Samples, 1)
+    remove = c(remove, Samples[!Samples==Keep] ) 
+  }
+  remove = unlist(remove)
+  Metadata %>% filter(! ID_anal %in% remove) -> Metadata
+  return(Metadata)
+}
+one_hot_encode <- function(df, column_name) {
+  df %>%
+    separate_rows({{column_name}}, sep = ";") %>%
+    pivot_wider(names_from = {{column_name}}, values_from = {{column_name}}, values_fn = length, values_fill = 0)
+}
+subspecies_colors <- c("subsp. infantis" = "brown", "subsp. suis"= "darkturquoise", "subsp. longum"="#CAB2D6")
+clade_colors <- c("suis clade"="#ccfbfe", "infantis clade" = "#a04668", "longum clade" = "grey" )
+my_palette <- c("lightgrey", "steelblue")
+
+```
+
+Prepare tree with reference genomes
+```{r Tree }
+
+read_tsv("/mnt/project/Make_Associations/Phenotypes/Specific/Blongum_infant.tsv") -> longum_infant
+Process_tree("/mnt/project/Phylogenies/t__SGB17248_withLongumSubs2/treeshrink/RAxML_bestTree.t__SGB17248.TreeShrink.tre") -> Tree
+Tree$tip.label[  grepl("GCA", Tree$tip.label)   ] -> Refs
+keep.tip(Tree, c(Refs, longum_infant$sample_id)) -> Tree
+longum_infant %>% mutate(Reference = F) %>% rbind(tibble(sample_id = Refs, Country=NA, infant=NA, offset_val=NA,phylo_effect_median=NA, Continent=NA, Reference = T  )) -> longum_infant
+longum_infant %>% mutate(infant = ifelse(Reference == T, "Reference", infant) ) -> longum_infant
+
+```
+
+Get exact infant age
+```{r infantage }
+read_tsv("/mnt/project/Make_Associations/Phenotypes/Phenotypes_merged_complete.tsv") -> Phenotypes
+Phenotypes %>% select(ID_anal, infant_age, Age, study_name) %>% rename(sample_id = ID_anal) -> Pheno_infants
+left_join(longum_infant, Pheno_infants) -> longum_infant
+```
+
+Get subspecies info for reference genomes
+```{r info subspecies ref}
+read_tsv("/mnt/project/Samples_tree/SGB/t__SGB17248/2_x/Table_references.tsv") %>% filter(ref %in% Refs) %>% select(ref, subsp) %>% rename(sample_id = ref , Subspecies = subsp) ->  Refs_info
+left_join(longum_infant, Refs_info) -> longum_infant
+longum_infant %>% mutate( infant = ifelse(Reference == T, NA, infant ) ) -> longum_infant
+```
+
+We will subsample adult samples from the tree for convenience
+```{r }
+longum_infant %>% filter(infant == T | Reference == T | Continent == "Africa" ) -> Enrichment_keep 
+longum_infant %>% filter(! sample_id %in% Enrichment_keep$sample_id) -> To_sample
+sample(To_sample$sample_id,1000) -> Keep2
+
+keep.tip(Tree, c(Keep2, Enrichment_keep$sample_id) ) -> Tree_sub
+
+
+```
+
+Rooting tree and finding MRCA for infant subspecies
+```{r }
+longest_branch <- which.max(node.depth.edgelength(Tree_sub))
+# Root the tree at the midpoint of the longest branch
+rooted_tree <- root(Tree_sub, outgroup = Tree_sub$tip.label[longest_branch], resolve.root = T )
+
+#finding the node for infantis
+filter(longum_infant,Subspecies == "subsp. suis")$sample_id -> suisref
+filter(longum_infant,Subspecies == "subsp. infantis")$sample_id -> infantisref
+common_ancestor_infant <- getMRCA(Tree_sub, infantisref[5:10] ) #outgroup infantis
+common_ancestor_infant2 <- getMRCA(Tree_sub, suisref ) #outgroup suis
+Adults = filter(longum_infant, infant == F)$sample_id
+common_ancestor_adult <- getMRCA(Tree_sub, sample(Adults[Adults %in% Tree_sub$tip.label ], 200)  ) 
+
+```
+
+Visualize tree
+
+Visualize infant tree
+
+```{r }
+ggtree(Tree , layout = "fan",  open.angle=15, size=0.1 ) %<+% (longum_infant %>% mutate(infant = ifelse(is.na(infant), "Reference", ifelse(infant==T, "Infant (<=2 years old)",  "Not infant (>1 years old)"  ) ) ) ) + geom_balance(node=6014, fill="grey", color=NA, alpha=0.3)-> p
+p + geom_tippoint(aes(color=infant), size=0.5)  + scale_color_manual(values = c("#FF7F7F","grey", "black" )) +   new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=phylo_effect_median), width=0.1,offset=) + scale_fill_viridis_c(option = "magma") 
+
+```
+
+Split tree in the adult-enriched clade, and infant-enriched clades
+```{r }
+AdultClade = Tree$tip.label[getDescendants(Tree, node=5831+182)] ; AdultClade[!is.na(AdultClade)] 
+longum_infant %>% mutate(Adult_clade = ifelse( sample_id %in% AdultClade, T, F )) -> longum_infant
+
+drop.tip(Tree, AdultClade ) -> Tree_sub3
+```
+
+Enrichment of European samples in adult-like clade
+```{r }
+longum_infant %>% filter(infant==T) %>% 
+  glm( as.factor(Adult_clade) ~ Continent  , . , family=binomial() ) %>% summary()
+
+```
+And enrichment of African samples within the suis-like clade
+```{r }
+getDescendants(Tree_sub3,node=399) -> Check
+Phenotypes %>% filter(infant==T) %>% filter(!is.na(sample_id)) %>% mutate(suis_clade = ifelse(sample_id %in% Tree_sub3$tip.label[Check] , T, ifelse(sample_id %in% Tree_sub2$tip.label, F, NA) )  ) %>% filter(! (is.na(suis_clade) ) ) %>%
+  glm( as.factor(suis_clade) ~ Continent  , . , family=binomial() ) %>% summary()
+```
+
+
+Display tree only on infants
+```{r}
+
+ggtree(Tree_sub3 , layout = "fan",  open.angle=15, size=0.1 ) %<+% (longum_infant %>% mutate(infant = ifelse( is.na(infant), "Reference", ifelse(infant==T, "Infant (<=2 years old)",   "Not infant (>2 years old)"  ) ) ) )  +
+  geom_tippoint(aes(color=infant), size=0.5)  + scale_color_manual(values = c( "#FF7F7F", "grey", "black" )) +
+  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=infant_age), width=0.1,offset=0.1  ) + scale_fill_viridis_c(option = "viridis")  + 
+  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Continent), width=0.1,offset=0.1) +  scale_fill_manual(values=c("Europe" = "#1f77b4", "North_America" = "#ff7f0e", "South_America" = "#2ca02c", "Asia" = "#d62728", "Oceania" = "#9467bd", "Africa" = "#FFCE30")) +
+  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Subspecies), width=0.1,offset=0.1) + scale_fill_manual(values = c( "subsp. infantis" = "brown", "subsp. suis"= "darkturquoise", "subsp. longum"="#CAB2D6"  ), na.value="white" ) +
+  geom_balance(node= 399  , fill="#ccfbfe", color=NA, alpha=0.3) + #suis 216+3
+  geom_balance(node= 216 + 3  , fill= "#a04668", color=NA, alpha=0.3) -> infant_tree2 #+ #+ #infantes 216 + 22
+  #geom_balance(node= 216 + 196  , fill= "#CDD6DD", color=NA, alpha=0.3) -> infant_tree2
+
+
+```
+
+
+There is a wrong subspecies assignment within the suis-like clade
+```{r }
+#There is an infantis and a longum clustering with the "suis clade"
+longum_infant %>% filter(sample_id %in% Tree_sub3$tip.label[ getDescendants(Tree_sub3,399) ] ) %>%
+  filter(Reference == T) -> Wrong_assig
+
+```
+
+We will show this is likely an annotation issue showing : 1. ANIs, 2. Pangenomic gene Presnece/Absence
+
+ANIs
+```{r }
+read_tsv("/mnt/project/Make_Associations/Functional_enrichment/Bifido_Ref/Pangenome/ANI",col_names = F) %>%
+  mutate(X1= str_replace(X1, ".gff", ""),X2= str_replace(X2, ".gff", "") ) %>% select(X1, X2, X3) %>%
+  spread(X2, X3) -> df_ani
+
+#Remove a couple of missannotations within the 'longum' subspecies
+df_ani = df_ani %>% filter(! X1 %in% c("GCA_000155415", "GCA_000196575") ) %>% select( - c("GCA_000155415", "GCA_000196575" ) )
+df_ani %>% as.data.frame() %>% column_to_rownames("X1") %>% as.matrix() -> df_ani2
+
+Anno = mutate(df_ani, Clade= ifelse(X1 %in% Wrong_assig$sample_id, 1, 0 )) %>% left_join(longum_infant %>% select(sample_id, Subspecies), by=c("X1" = "sample_id" ) ) %>% select(X1,Clade,Subspecies) %>% as.data.frame() %>% column_to_rownames("X1")
+df_ani2[lower.tri(df_ani2)] <- t(df_ani2)[lower.tri(df_ani2)]
+
+```
+What is the ANI distribution between references
+```{r }
+df_ani2 %>% melt() %>% as_tibble() %>% rename(ANI = value) -> pairwise_ani
+pairwise_ani %>% left_join(longum_infant %>% select(sample_id, Subspecies), by=c("Var1"="sample_id") ) %>% left_join(longum_infant %>% select(sample_id, Subspecies), by=c("Var2"="sample_id"), suffix=c("_1", "_2")  ) %>% filter(! Var1 ==  Var2 ) %>%
+  mutate(Row = pmin(Var1, Var2), Column = pmax(Var1, Var2)) %>%
+  distinct(Row, Column, .keep_all = TRUE)-> pairwise_ani 
+
+pairwise_ani %>% mutate(Comparison = paste0(pmin(Subspecies_1, Subspecies_2), "-",pmax(Subspecies_1, Subspecies_2)  ) ) -> pairwise_ani
+pairwise_ani %>% group_by(Comparison) %>% summarise(median(ANI)) %>% arrange(desc(`median(ANI)`))
+
+
+```
+What is the average ANI between every two subspecies
+```{r }
+
+
+```
+
+plot heatmap reference genomes ANI
+```{r }
+Anno = mutate(df_ani, Clade= ifelse(X1 %in% Wrong_assig$sample_id, 1, 0 )) %>% left_join(longum_infant %>% select(sample_id, Subspecies), by=c("X1" = "sample_id" ) ) %>% select(X1,Clade,Subspecies)
+Anno %>% mutate(Clade = ifelse(Clade == 1, "suis clade", ifelse(X1 %in%AdultClade, "longum clade", "infantis clade"))) -> Anno
+Anno %>% rename(Subs. = Subspecies) -> Anno
+pheatmap::pheatmap(df_ani2, annotation_row=Anno %>% as.data.frame() %>% column_to_rownames('X1')  , annotation_colors = list(`Subs.` = subspecies_colors, Clade = clade_colors)   ) 
+```
+Show the average ANI to each of the clades fro the suspected missannotation
+```{r Average ANI  }
+Find_Average_ANI_with_Clade = function(Anno, df_ani2, Genome_ID ){
+#  Genome_ID = c("GCA_000092325", "GCA_00155415", "GCA_00196575")
+
+  ANI_df = tibble()
+  for (Subclade in unique(Anno$Clade) ){
+    Anno %>% filter(Clade == Subclade) -> SC
+    df_ani2[Genome_ID, SC$X1] -> ANIs
+    Avg_Ani = mean(ANIs)
+    ANI_df %>% rbind(tibble(Clade = Subclade, avgANI=Avg_Ani ) ) -> ANI_df
+  }
+  return(ANI_df)
+}
+Find_Average_ANI_with_Clade(Anno, df_ani2 ,"GCA_000092325")
+```  
+
+Pangenome analysis
+```{r }
+read_csv("/mnt/project/Make_Associations/Functional_enrichment/Bifido_Ref/Pangenome/gene_presence_absence.csv") -> Genes
+colnames(Genes)[grepl("GCA", colnames(Genes))] -> Samples 
+Genes %>% select(Gene, Samples) -> PangenomeInfo
+PangenomeInfo %>% as.data.frame() %>% column_to_rownames("Gene") ->PangenomeInfo2
+PangenomeInfo2 %>% mutate_all(~ ifelse(is.na(.), 0, 1)) -> PangenomeInfo2
+```
+
+Do heatmap pangenome
+```{r }
+Anno = mutate(df_ani, Clade= ifelse(X1 %in% Wrong_assig$sample_id, 1, 0 )) %>% left_join(longum_infant %>% select(sample_id, Subspecies), by=c("X1" = "sample_id" ) ) %>% select(X1,Clade,Subspecies)
+
+Anno %>% rbind( data.frame(X1 = "GCA_900445755", Subspecies="subsp. infantis", Clade=F) ) -> Anno
+Anno %>% mutate(Clade = ifelse(Clade == 1, "suis clade", ifelse(X1 %in%AdultClade, "longum clade", "infantis clade"))) -> Anno
+Anno %>% rename(Subs. = Subspecies) -> Anno
+PangenomeInfo2 %>% select(any_of( c(Tree_sub3$tip.label, filter(longum_infant, Subspecies == "subsp. longum" )$sample_id) ) ) %>%
+  t()  %>% as.data.frame() %>% pheatmap::pheatmap(
+    show_colnames = FALSE,annotation_row=Anno %>% as.data.frame() %>% column_to_rownames("X1"), cluster_cols = F,
+    annotation_colors = list(Subs. = subspecies_colors, Clade = clade_colors), 
+    color = my_palette,legend = FALSE, fontsize_row = 4, 
+    annotation_legend = F )
+
+```
+
+
