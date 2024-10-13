@@ -214,11 +214,7 @@ pairwise_ani %>% group_by(Comparison) %>% summarise(median(ANI)) %>% arrange(des
 
 
 ```
-What is the average ANI between every two subspecies
-```{r }
 
-
-```
 
 plot heatmap reference genomes ANI
 ```{r }
