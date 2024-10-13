@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 In this notebook I will show how there is an enrichment of elder individuals within a clade of R. gnavus.
 I load the output from anpan which has been saved as RDS files, anf from it I extract the median (from the posterior distribution) phylogenetic effect per leaf. I will use this for plotting, and to define the clade of interest.
 
-```{r cars}
+```{r packages}
 set.seed(12234)
 library(tidyverse)
 library(anpan)
@@ -212,6 +212,11 @@ Run enrichment in European samples. Here, to define the clade, we need to keep t
 rbind ( Age_europe, Age_Asia) -> Combined_info
 Age_europe2 = Enrichment_elder(Tree_gnavus_all, Phenos_merge, Combined_info, Is_Eur=T)
 ```
+Test after removal of <18 yo
+```{r }
+rbind ( Age_europe, Age_Asia) -> Combined_info
+Age_europe2 = Enrichment_elder(Tree_gnavus_all, Phenos_merge, Combined_info %>% filter(Age>=18), Is_Eur=T)
+```
 
 ## Confounding
 
@@ -241,4 +246,324 @@ ToTest_Europe2 %>% group_by(Elder_clade) %>% summarise(n()) %>% print()
 ToTest_Europe2 %>% glmer( as.factor(Elder_clade) ~ Age + Sex + BMI + scale(number_reads) + (1|study_name), ., family=binomial ) %>% summary()
 
 ```
+## Gene enrichment test
+
+
+
+```{r }
+#Gene info R. gnavus
+read_tsv("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/Gene_presence/t__SGB4584.tsv") -> UniRef90_gnavus
+UniRef90_gnavus_wide <- UniRef90_gnavus %>% select(Sample, Gene) %>% filter(Sample %in% Combined_info$sample_id) %>% mutate(N = 1) %>% distinct() %>% spread(Gene, N) 
+UniRef90_gnavus_wide[is.na(UniRef90_gnavus_wide)] =  0
+
+Info_genomes = UniRef90_gnavus %>% select(Sample , Completeness, Contamination) %>% distinct()
+Info_genomes_xu= read_tsv("/mnt/project/Make_Associations/Functional_enrichment/Assemblies/XuQ_Rgnavus_checkm.tsv")
+colnames(Info_genomes_xu) = colnames(Info_genomes) 
+rbind(Info_genomes, Info_genomes_xu) -> Info_genomes
+
+```
+
+Run gene enrichment test
+```{r }
+GeneEnrichmentTest = function(DF_uniref, UniRef90_wide=UniRef90_gnavus_wide, Test = "logistic", Completedness_cutoff = 0 ){
+  DF_uniref %>% filter(Completeness >=  Completedness_cutoff) -> DF_uniref
+  DF_uniref %>% group_by(Elder_clade) %>% summarise(n()) %>% print()
+  
+  DF_uniref %>% filter(Elder_clade==T) %>% select(colnames(UniRef90_wide%>% select(-Sample)))  %>% apply(2, function(x){ sum(x)/length(x) } ) -> Prevalences_cent
+  
+  DF_uniref %>% filter(Elder_clade==F) %>% select(colnames(UniRef90_wide %>% select(-Sample)))  %>% apply(2, function(x){ sum(x)/length(x) } ) -> Prevalences_nocent
+
+  #Test only if difference of prevalence is big enough
+  abs(Prevalences_cent - Prevalences_nocent) -> dif_Prevalence_cent
+  Genes_test_c = names(dif_Prevalence_cent)[dif_Prevalence_cent>0.3]
+  
+  Results_test_c=tibble()
+  N = 0
+  
+  for (Gene in Genes_test_c ){
+    DF_uniref %>% filter(!is.na(!!sym(Gene))) -> Info_with_genes2
+    mean(Info_with_genes2[Gene] %>% as_vector() ) -> Prevalence
+    mean( filter(Info_with_genes2, Elder_clade==T  )[Gene] %>% as_vector()) -> Prevalence_high
+    mean( filter(Info_with_genes2, Elder_clade==F  )[Gene] %>% as_vector()) -> Prevalence_low
+    
+    N = N + 1    
+
+    if (Test == "Fisher"){
+      #Add pseudocount
+      Info_with_genes2 %>% group_by(!!sym(Gene), Elder_clade) %>% summarise(N = n()) %>% drop_na() %>% spread(Elder_clade, N) %>% ungroup() %>% as.data.frame() %>% column_to_rownames(Gene) -> Table_test
+      if (dim(Table_test)[1] < 2){ next }
+      Table_test[is.na(Table_test)] = 0
+      Table_test = Table_test + 1 #Add pseudcount
+  
+      Test_p = fisher.test(Table_test)
+      Fold_Change = Prevalence_high/Prevalence_low
+      Results = tibble( Prevalence_rest = Prevalence_low, Prevalence_clade = Prevalence_high, Fold=Fold_Change, P = Test_p$p.value, Odds_ratio = Test_p$estimate, Lower_bound = Test_p$conf.int[1], Upper_bound = Test_p$conf.int[2], Gene = Gene     ) 
+    Results_test_c = rbind(Results_test_c  , Results %>% mutate(Gene=Gene) ) 
+    } else if ( Test == "logistic" ){
+      if ( Prevalence_low !=0 & Prevalence_high !=0 ){
+        Formula = paste0( Gene, " ~ Elder_clade + Completeness + Contamination" )
+        Info_with_genes2 %>% glm(Formula , . , family=binomial()) %>% summary() -> Results
+        Res = Results$coefficients %>% as.data.frame() %>% rownames_to_column("Feature")  %>% filter(Feature %in%  c("Elder_cladeTRUE")) %>% as_tibble() %>% mutate(Prevalence_rest = Prevalence_low, Prevalence_clade = Prevalence_high, Gene= Gene  )
+        Res %>% rbind(Results_test_c, . ) -> Results_test_c
+      } else { 
+        Res = tibble( Gene = Gene, Prevalence_rest = Prevalence_low, Prevalence_clade = Prevalence_high, Feature="Elder_cladeTRUE",Estimate =NA, `Std. Error`=NA, `z value`=NA, `Pr(>|z|)`=NA  )
+        if (dim(Results_test_c)[1] == 0 ){  Results_test_c = Res
+        } else { rbind(Results_test_c,  Res) -> Results_test_c }
+      }
+  }
+
+  }
+  return(Results_test_c)
+}
+
+
+```
+
+Do enrichment in Xu
+```{r }
+read_tsv("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/Analysis_nonagenarianClade/Presence_gene_long.tsv") -> UniRef90_xu
+UniRef90_wide_xu <- UniRef90_xu %>% select(ID_anal, Gene) %>% filter(ID_anal %in% Age_xu2$sample_id) %>%
+  mutate(N = 1) %>% distinct() %>% spread(Gene, N) 
+UniRef90_wide_xu[is.na(UniRef90_wide_xu)] =  0
+
+
+Age_xu2  %>% filter(sample_id %in% UniRef90_xu$ID_anal)  %>% left_join(., UniRef90_wide_xu %>% rename(sample_id = ID_anal), by="sample_id" ) %>% distinct(sample_id, .keep_all = T) %>%  left_join( Info_genomes%>% distinct() %>%  rename(sample_id = Sample) ) -> XuUniRef
+
+XuUniRef %>% group_by(Elder_clade) %>% summarise(n()) %>% print()
+
+Results_test_xu = GeneEnrichmentTest( DF_uniref =  XuUniRef,UniRef90_wide = UniRef90_wide_xu %>% rename(Sample = ID_anal), Test = "Fisher",  Completedness_cutoff = 90) 
+
+write_tsv(Results_test_xu, "Supp_Tables_update/XuQ_Rgnavus_GeneEnrichment_elderClade_highQMAGs.tsv")
+
+```
+Check in European samples
+
+```{r }
+Age_europe2 %>% filter(sample_id %in% UniRef90_gnavus_wide$Sample) %>% filter(Continent == "Europe") %>% left_join(., UniRef90_gnavus_wide %>% rename(sample_id = Sample), by="sample_id" ) %>% distinct(sample_id, .keep_all = T) %>%  left_join( Info_genomes%>% distinct() %>%  rename(sample_id = Sample) ) -> EuropeanUniRef
+
+EuropeanUniRef %>% group_by(Elder_clade) %>% summarise(n()) %>% print()
+
+Results_test_c = GeneEnrichmentTest( DF_uniref =  EuropeanUniRef,UniRef90_wide = UniRef90_gnavus_wide, Test = "Fisher",  Completedness_cutoff = 90 ) 
+
+write_tsv(Results_test_c, "Supp_Tables_update/Europe_Rgnavus_GeneEnrichment_elderClade_highQMAGs.tsv")
+
+```
+
+
+Replication between XuQ and European assocations
+```{r }
+Results_test_xu %>% mutate(FDR = p.adjust(P, "fdr")) -> Results_test_xu
+Results_test_c %>% mutate(FDR = p.adjust(P, "fdr")) -> Results_test_c
+
+
+Results_test_xu %>%  group_by(FDR<0.05) %>% summarise(n())
+Results_test_c %>% filter(FDR<0.05) %>% group_by(Gene %in%  filter(Results_test_xu, FDR<0.05)$Gene ) %>% summarise(n())
+
+
+```
+
+
+### MetaCyc Pathways
+
+```{r }
+#Metacyc Pathways : reactions
+Enrichment_tables = read_rds("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/For_enrichment/metacyc_pathways.rds")
+#ECs : reactions
+Translate_EC_to_reaction = read_tsv("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis//For_enrichment/EC_to_reaction.tsv.gz")
+#Uniref90 to ECs
+read_rds("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/For_enrichment/UniRef90/ec.rds") -> ECs
+ECs_tibble <- enframe(ECs, name = "EC", value = "UniRef90")
+ECs_tibble %>% separate_rows(UniRef90, sep="\t")  -> ECs_tibble
+
+
+Run_enrichment = function(Summary_stats, Table,Plot=F){
+  if ("z value" %in% colnames(Summary_stats) ){
+    Summary_stats %>%  arrange(desc(`z value`))-> R1
+    ranks = R1$`z value`
+  } else { 
+    Summary_stats %>%  arrange(desc(log10(Odds_ratio)))-> R1
+    ranks = R1$Fold
+  }
+  #Prepare ranks
+  
+  names(ranks) = as.character(R1$Gene)
+  #Run GSEA
+  fgseaRes <- fgsea::fgsea(Table, ranks, scoreType = "pos")
+  
+  if (Plot == T){
+    topPathwaysUp <- fgseaRes[ES > 0][head(order(pval), n=10), pathway]
+    topPathwaysDown <- fgseaRes[ES < 0][head(order(pval), n=10), pathway]
+    topPathways <- c(topPathwaysUp, rev(topPathwaysDown))
+    fgsea::plotGseaTable(Table[topPathways], ranks, fgseaRes,  gseaParam=0.5)
+  }
+  
+  return(fgseaRes)
+}
+
+DoMetaCycEnrichment = function( SummaryStats ){
+  if ("Pr(>|z|)" %in% colnames(SummaryStats) ){ SummaryStats %>% rename( P = `Pr(>|z|)` ) }
+  #Uniref90 --> EC ---> Reactions --> Metacyc Enrichment
+  SummaryStats   %>% mutate(P , "fdr")  %>% rename(UniRef90 = Gene) %>% left_join(ECs_tibble) %>% rename(ec = EC) %>% left_join(Translate_EC_to_reaction) %>%  drop_na()  -> Input2
+
+  MetaCyc_enrichment = Run_enrichment(Input2 %>% rename(Gene = Reaction) ,  Table=Enrichment_tables )
+  return(MetaCyc_enrichment)
+
+}
+
+```
+
+Check pathway completeness
+```{r }
+TestPathwayCompletion = function(DF_uniref,Results_test, Enrichment_tables, Translate_EC_to_reaction,Completion_MAG=0){
+  DF_uniref %>% filter(Completeness >= Completion_MAG) -> DF_uniref
+  
+  read_rds("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/For_enrichment/UniRef90/ec.rds") -> ECs
+  ECs_tibble <- enframe(ECs, name = "EC", value = "UniRef90")
+  ECs_tibble %>% separate_rows(UniRef90, sep="\t") -> ECs_tibble
+  
+  #Give EC to each pathway
+  Results_test %>% left_join(ECs_tibble %>% rename(Gene = UniRef90), relationship = "many-to-many" ) -> merged_ec
+  merged_ec %>% drop_na() %>% group_by(Gene) %>% summarise(n()) 
+  #Giving pathway(s) to each EC
+  merged_ec %>% left_join(Translate_EC_to_reaction %>% rename(EC = ec)) %>% distinct() -> Merged_info
+  #Getting the number of steps per pathway
+  Enrichment_tables %>% stack() %>% as_tibble() %>% rename(Reaction =values , Pathways = ind  ) -> Pathwyas_tibble
+  Pathwyas_tibble %>% group_by(Pathways) %>% summarise(N = n()) -> Pathways_numbers
+
+  Results_test_pathway=tibble()
+  Completedness_total = tibble(sample_id =DF_uniref$sample_id)
+
+  for (Path in unique(Merged_info$Pathways) ){
+    print(Path)
+    if (! Path %in% Pathways_numbers$Pathways ){ next }
+    if(is.na(Path)){ next }
+    #Per pathway, get all ECs neccessary for completion
+    Translate_EC_to_reaction %>% filter(Pathways == Path) -> ECs_to_check
+    #Get the total number of steps
+    Denominator =  filter(Pathways_numbers, Pathways == Path)$N
+    ECs_tibble %>% filter(EC %in% ECs_to_check$ec) -> ECs_to_check
+    
+    #Get pathway members
+    DF_uniref  %>% select( c(sample_id, any_of(ECs_to_check$UniRef90 ) ) ) -> N_pathway
+    
+    N_pathway %>% gather(UniRef90, value ,colnames(select(N_pathway, -sample_id)) )  %>% left_join(ECs_to_check) %>% group_by(sample_id, EC) %>% summarise(C = sum(value)) %>% mutate(Numerator = ifelse(C > 1 , 1, C ) ) %>% group_by(sample_id) %>% summarise(N = sum(Numerator)) %>% 
+    mutate(Fraction_complete = N/Denominator  ) %>% left_join( select(DF_uniref, c(sample_id,  Elder_clade) ) ) -> For_test
+    
+  wilcox.test( filter(For_test, Elder_clade == T)$Fraction_complete, filter(For_test, Elder_clade == F)$Fraction_complete, exact = F) -> Result
+
+  For_test %>% group_by(Elder_clade) %>% summarise(Median_completion = median(Fraction_complete) ) -> Result_info
+  
+  tibble(Pathway = Path, P=Result$p.value, Median_completion_clade = filter(Result_info,Elder_clade == T)$Median_completion,Median_completion_noclade = filter(Result_info,Elder_clade == F)$Median_completion   ) %>% rbind(Results_test_pathway, .) -> Results_test_pathway
+  
+  #Get completedness df
+  For_test %>% select(sample_id, Fraction_complete) -> To_save
+  colnames(To_save)[2] = Path
+  left_join(Completedness_total, To_save, by="sample_id") %>% as_tibble() -> Completedness_total
+}
+
+  
+  Results_test_pathway %>% arrange(P) %>% mutate( FDR = p.adjust(P, "fdr") ) -> Results_test_pathway
+  return(list( 'Results' = Results_test_pathway, 'DF_completedness' =  Completedness_total) )
+}
+```
+
+```{r }
+Completedness_Xu =  TestPathwayCompletion(XuUniRef ,Results_test_xu, Enrichment_tables, Translate_EC_to_reaction, Completion_MAG=90 )
+
+Completedness_Eur =  TestPathwayCompletion(EuropeanUniRef ,Results_test_c, Enrichment_tables, Translate_EC_to_reaction, Completion_MAG=90 )
+
+write_tsv(Completedness_Xu$Results, "Supp_Tables_update/XuQ_Rgnavus_PathCompletion_elderClade_highQMAGs.tsv")
+write_tsv(Completedness_Eur$Results, "Supp_Tables_update/Europe_Rgnavus_PathCompletion_elderClade_highQMAGs.tsv")
+
+
+```
+
+
+
+### Biosynthetic gene clusters 
+
+```{r}
+BGCTest = function(Info_with_gutsmash, Test = "logistic", Completedness_cutoff = 90 ){
+ Info_with_gutsmash %>% filter(Completeness >=  Completedness_cutoff) -> Info_with_gutsmash
+ Info_with_gutsmash %>% group_by(Elder_clade) %>% summarise(n()) %>% print()
+ 
+
+ Results_gutsmash = tibble()
+  for (Module in colnames(GS_qin %>% select(-sample_id))){
+    Info_with_gutsmash %>% filter(!is.na(!!sym(Module))) -> Info_with_genes2
+    mean(Info_with_genes2[Module] %>% as_vector() ) -> Prevalence
+    mean( filter(Info_with_genes2, Elder_clade==T  )[Module] %>% as_vector()) -> Prevalence_high
+    mean( filter(Info_with_genes2, Elder_clade==F  )[Module] %>% as_vector()) -> Prevalence_low
+    
+    if ( Test == "Fisher"){
+      Info_with_genes2 %>% group_by(!!sym(Module), Elder_clade) %>% summarise(N = n()) %>% drop_na() %>% spread(Elder_clade, N) %>% ungroup() %>% as.data.frame() %>% column_to_rownames(Module) -> Table_test
+      if (dim(Table_test)[1] < 2){ next }
+      Table_test[is.na(Table_test)] = 0
+      Table_test = Table_test + 1 #Add pseudcount
+      
+      Test_p = fisher.test(Table_test)
+      Prevalence = apply(Table_test, 2, function(x){ x[2]/sum(x)  }  )
+      Fold_Change = as.vector(Prevalence[1])/as.vector(Prevalence[2])
+      Results = tibble( Prevalence_rest = Prevalence[1], Prevalence_clade = Prevalence[2], Fold=Fold_Change, P = Test_p$p.value, Odds_ratio = Test_p$estimate, Lower_bound = Test_p$conf.int[1], Upper_bound = Test_p$conf.int[2]    ) 
+      Results_gutsmash = rbind(Results_gutsmash  , Results %>% mutate(BGC=Module) ) 
+    } else if ( Test == "logistic" ){
+      if ( Prevalence_low !=0 & Prevalence_high !=0 ){
+        Formula = paste0("`", Module, "` ~ Elder_clade + Completeness + Contamination" )
+        Info_with_gutsmash %>% glm(Formula , . , family=binomial()) %>% summary() -> Results
+        Res = Results$coefficients %>% as.data.frame() %>% rownames_to_column("Feature")  %>% filter(Feature %in%  c("Elder_cladeTRUE")) %>% as_tibble() %>% mutate(Prevalence_rest = Prevalence_low, Prevalence_clade = Prevalence_high, BGC= Module  )
+        Res %>% rbind(Results_gutsmash, . ) -> Results_gutsmash
+      } else { 
+        Res = tibble( BGC = Module, Prevalence_rest = Prevalence_low, Prevalence_clade = Prevalence_high, Feature="Elder_cladeTRUE",Estimate =NA, `Std. Error`=NA, `z value`=NA, `Pr(>|z|)`=NA  )
+        if (dim(Results_gutsmash)[1] == 0 ){  Results_gutsmash = Res
+        } else { rbind(Results_gutsmash,  Res) -> Results_gutsmash }
+      }
+      
+    }
+  }
+ 
+  return(Results_gutsmash)
+}
+
+```
+
+
+```{r}
+#gutSmash
+GS_qin = read_tsv("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/GutSmash/GutSmash_QinN_2021.tsv", col_names=F)
+GS_qin %>% rename(sample_id = X1) %>% select(-X2) %>% distinct() %>% mutate(Presence=1) %>% spread(X3, Presence) -> GS_qin
+GS_qin[is.na(GS_qin)] = 0
+GS_qin %>% select(-sample_id) %>% apply(2, function(x){ sum(x)/length(x) } )
+left_join(Age_xu2, GS_qin) %>% drop_na() -> Info_with_gutsmash
+left_join(Info_with_gutsmash, Info_genomes, by=c("sample_id" = "Sample") ) -> Info_with_gutsmash
+
+Results_gutsmash = BGCTest(Info_with_gutsmash, Test = "Fisher", Completedness_cutoff = 90)
+
+
+Results_gutsmash %>% as_tibble() %>% arrange(P) %>% mutate(FDR= p.adjust(P, "fdr") ) -> Results_gutsmash
+write_tsv(Results_gutsmash, "Supp_Tables_update/XuQ_Rgnavus_BGC_elderClade_highQMAGs.tsv")
+
+
+```
+
+Replicate in rest of non-Qin samples
+
+```{r }
+GS_no_qin = read_tsv("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/GutSmash/GutSmash_noQinN_2021.tsv", col_names=F)
+GS_no_qin %>% rename(sample_id = X1) %>% select(-X2) %>% distinct() %>% mutate(Presence=1) %>% spread(X3, Presence) -> GS_no_qin
+GS_no_qin[is.na(GS_no_qin)] = 0
+left_join(Age_europe2, GS_no_qin  ) %>% drop_na() -> Info_with_gutsmash2
+left_join(Info_with_gutsmash2, Info_genomes, by=c("sample_id" = "Sample") ) -> Info_with_gutsmash2
+
+
+
+Info_with_gutsmash2 %>% group_by(Elder_clade) %>% summarise(n())
+Info_with_gutsmash2 %>% filter(Completeness >= 90) %>% group_by(`BGC type: Flavoenzyme_sugar_catabolism`, Elder_clade) %>% summarise(N = n()) %>% ungroup() %>%  drop_na() %>% spread(Elder_clade, N)  %>% as.data.frame() %>% column_to_rownames("BGC type: Flavoenzyme_sugar_catabolism") -> Table_test
+Table_test[is.na(Table_test)] = 0 #; Table_test = Table_test + 1
+Test_p = fisher.test(Table_test)
+print(Test_p$p.value) ; print(Test_p$estimate)
+
+```
+
+
+
 

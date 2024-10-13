@@ -203,8 +203,16 @@ sim_df |>
 sim_df %>% ggplot(aes(x=elpd_diff)) + geom_histogram() +theme_bw() + geom_vline(xintercept = -4, linetype=2) -> P2
 
 P1 + P2
+```
+
+Check normality - It does not seem to be completely well behaved
+```{r}
+library("ggpubr")
+ggqqplot(sim_df$elpd_diff)
+shapiro.test(sim_df$elpd_diff)
 
 ```
+
 
 ```{r }
 sim_df %>% mutate(T_stat = elpd_diff/elpd_se, P_value = T_stat_P(T_stat), P_bonferroni = P_value*dim(sim_df)[1], FDR=p.adjust(P_value, "fdr")  ) %>% arrange(elpd_diff)
