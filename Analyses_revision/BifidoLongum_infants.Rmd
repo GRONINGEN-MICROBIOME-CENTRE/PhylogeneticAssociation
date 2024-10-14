@@ -20,6 +20,7 @@ library(ggtreeExtra)
 library(ggnewscale)
 library(lmerTest)
 library(phytools)
+library(reshape2)
 setwd("/mnt/project/Make_Associations/Git/PhylogeneticAssociation/Analyses_revision")
 
 Process_RDS = function(Data){
@@ -136,7 +137,9 @@ Visualize infant tree
 
 ```{r }
 ggtree(Tree , layout = "fan",  open.angle=15, size=0.1 ) %<+% (longum_infant %>% mutate(infant = ifelse(is.na(infant), "Reference", ifelse(infant==T, "Infant (<=2 years old)",  "Not infant (>1 years old)"  ) ) ) ) + geom_balance(node=6014, fill="grey", color=NA, alpha=0.3)-> p
-p + geom_tippoint(aes(color=infant), size=0.5)  + scale_color_manual(values = c("#FF7F7F","grey", "black" )) +   new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=phylo_effect_median), width=0.1,offset=) + scale_fill_viridis_c(option = "magma") 
+p + geom_tippoint(aes(color=infant), size=0.5)  + scale_color_manual(values = c("#FF7F7F","grey", "black" )) +   new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=phylo_effect_median), width=0.1,offset=) + scale_fill_viridis_c(option = "magma") + geom_treescale(x= 0, y = 0, linesize=2) -> Plot_Blongum
+
+ggsave("Figures/BLongum.pdf", Plot_Blongum , width = 7, height =7)
 
 ```
 
@@ -157,7 +160,7 @@ longum_infant %>% filter(infant==T) %>%
 And enrichment of African samples within the suis-like clade
 ```{r }
 getDescendants(Tree_sub3,node=399) -> Check
-Phenotypes %>% filter(infant==T) %>% filter(!is.na(sample_id)) %>% mutate(suis_clade = ifelse(sample_id %in% Tree_sub3$tip.label[Check] , T, ifelse(sample_id %in% Tree_sub2$tip.label, F, NA) )  ) %>% filter(! (is.na(suis_clade) ) ) %>%
+Phenotypes %>% filter(infant==T) %>% filter(!is.na(sample_id)) %>% mutate(suis_clade = ifelse(sample_id %in% Tree_sub3$tip.label[Check] , T, ifelse(sample_id %in% Tree$tip.label, F, NA) )  ) %>% filter(! (is.na(suis_clade) ) ) %>%
   glm( as.factor(suis_clade) ~ Continent  , . , family=binomial() ) %>% summary()
 ```
 
@@ -171,9 +174,9 @@ ggtree(Tree_sub3 , layout = "fan",  open.angle=15, size=0.1 ) %<+% (longum_infan
   new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Continent), width=0.1,offset=0.1) +  scale_fill_manual(values=c("Europe" = "#1f77b4", "North_America" = "#ff7f0e", "South_America" = "#2ca02c", "Asia" = "#d62728", "Oceania" = "#9467bd", "Africa" = "#FFCE30")) +
   new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Subspecies), width=0.1,offset=0.1) + scale_fill_manual(values = c( "subsp. infantis" = "brown", "subsp. suis"= "darkturquoise", "subsp. longum"="#CAB2D6"  ), na.value="white" ) +
   geom_balance(node= 399  , fill="#ccfbfe", color=NA, alpha=0.3) + #suis 216+3
-  geom_balance(node= 216 + 3  , fill= "#a04668", color=NA, alpha=0.3) -> infant_tree2 #+ #+ #infantes 216 + 22
+  geom_balance(node= 216 + 3  , fill= "#a04668", color=NA, alpha=0.3) + geom_treescale(linesize=2) -> infant_tree2 #+ #+ #infantes 216 + 22
   #geom_balance(node= 216 + 196  , fill= "#CDD6DD", color=NA, alpha=0.3) -> infant_tree2
-
+ggsave("Figures/Blongum_infant.pdf", infant_tree2)
 
 ```
 
