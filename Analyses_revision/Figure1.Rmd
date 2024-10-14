@@ -1,0 +1,281 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+## Figure 1
+
+```{r}
+library(tidyverse)
+library(patchwork)
+
+library(ggtree)
+library(ggtreeExtra)
+library(ggnewscale)
+
+library(ape)
+library(phytools)
+
+c25 <- c("dodgerblue2", "#E31A1C", "green4","#6A3D9A", "#FF7F00", "black", "gold1", "skyblue2", "#FB9A99", "palegreen2","#CAB2D6", "#FDBF6F", "gray70", "khaki2",
+         "maroon", "orchid1", "deeppink1", "blue1", "steelblue4","darkturquoise", "green1", "yellow4", "yellow3","darkorange4", "brown")
+
+color_mapping <- c(
+  "Actinobacteria" = c25[1],
+  "Firmicutes" = c25[2],
+  "Bacteroidetes" = c25[3],
+  "Proteobacteria" = c25[4],
+  "Euryarchaeota" = c25[5],
+  "Synergistetes" = c25[7],
+  "Lentisphaerae" = c25[8],
+  "Kiritimatiellaeota" = c25[9],
+  "Tenericutes" = c25[10],
+  "Elusimicrobia" = c25[11],
+  "Crenarchaeota" = c25[13],
+  "Spirochaetes" = c25[14],
+  "Fusobacteria" = c25[15],
+  "Verrucomicrobia" = c25[15],
+  "Planctomycetes" = c25[17],
+  "Bacteria_unclassified" = c25[18],
+  "Candidatus_Melainabacteria" = c25[19],
+  "Candidatus_Thermoplasmatota" = c25[20],
+  "Candidatus_Saccharibacteria" = c25[21]
+)
+```
+
+Common Functions
+```{r}
+Remove_repeated = function(Metadata, pruned_tree){
+  'Check which samples are repeated (either duplicates or longitudinally) and only picks one from the repeated'
+  set.seed(89777)
+  Metadata %>% group_by(subject_id) %>% summarise(N = n()) %>% arrange(desc(N)) %>% filter(N > 1 ) -> Replicates
+  remove = tibble()
+  for (i in Replicates$subject_id){
+    Metadata %>% filter(subject_id == i) -> Filtered ; Samples = Filtered$ID_anal
+    Keep = sample(Samples, 1)
+    remove = c(remove, Samples[!Samples==Keep] ) 
+  }
+  remove = unlist(remove)
+  Metadata %>% filter(! ID_anal %in% remove) -> Metadata
+  return(Metadata)
+}
+
+Continent_scale=c("Europe" = "#1f77b4", "North_America" = "#ff7f0e", "South_America" = "#2ca02c", "Asia" = "#d62728", "Oceania" = "#9467bd", "Africa" = "#FFCE30")
+```
+
+
+
+Panel A
+```{r A}
+
+read_tsv("/mnt/project/Make_Associations/Phenotypes/Phenotypes_merged_complete.tsv") %>% filter(! study_name == "ThomasAM_2019_c" ) -> Data
+Data %>% Remove_repeated() %>% group_by(Country) %>% summarise(Number_of_samples = n()) -> N_per_country_uniq
+Data %>%  group_by(Country) %>% summarise(Number_of_samples = n()) -> N_per_country
+
+
+
+Make_plot = function(N_per_country){
+        read_csv("/mnt/project/Make_Associations/Phenotypes/Countries.csv", col_names = F) %>% rename(Country=X1, region=X2 ) -> Translation
+        world <- map_data("world") %>% as_tibble() %>% filter(!region == "Antarctica")
+
+        world %>% left_join(Translation) %>% left_join(N_per_country) %>%
+        ggplot() + geom_map( map = world, aes(x=long, y=lat, map_id = region, fill=Number_of_samples), color = "white", size = 0.1 ) + theme_void() +  ylim(-50, 80 ) +
+        scale_fill_gradientn(colours = c("#f3b03b", "#dc9832", "#bd802b", "#9f6923", "#80511a", "#613913", "#41210a") ) -> Plot
+        return(Plot)
+}
+
+W=13
+H=7
+
+N_per_country_uniq %>% Make_plot() -> Plot_uniq  
+N_per_country %>% Make_plot() -> Plot
+
+
+#Change labels of dutch studies
+Data %>% mutate(study_name = ifelse(study_name=="DAG3", "Gacesa_2022", ifelse(study_name=="300TZFG", "Strazar_2021", ifelse( study_name=="300OB", "Kurilshikov_2019", ifelse(study_name=="IBD", "Imhann_2016", ifelse(study_name=="500FG_FSK", "Schirmer_2016_FSK", ifelse(study_name %in% c("LLD", "LLD2"), "Zhernakova_2016", study_name ) )))))) -> Data
+
+
+Data  %>% ggplot(aes(x=fct_infreq(study_name), fill=Continent )) + geom_bar() + theme_bw() + coord_flip() + labs(x = NULL, y = NULL) + scale_fill_manual(values=Continent_scale) + theme(axis.text.y = element_text(size = 5)) -> Plot2
+Data %>% ggplot(aes(x=Age, fill=Continent)) + geom_histogram() + theme_bw() + facet_wrap(~Continent, scales = "free") + scale_fill_manual(values=Continent_scale) + labs(x = NULL) -> Plot3
+
+Plot2 = Plot2 + scale_y_continuous(breaks = c( 100, 500, 1000, 3000, 8000), labels = c( "100", "500", "1000", "3000" ,"8000")) + 
+  geom_hline(yintercept = 100, linetype = "dashed") + geom_hline(yintercept = 1000, linetype = "dashed") + geom_hline(yintercept = 2000, linetype = "dashed") +  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+MPlot = Plot / (Plot2 + Plot3) +  plot_layout(guides = "collect")
+#ggsave("Results/Plots/Figure1.pdf", MPlot, width=W, height=W)
+
+MPlot
+```
+
+Show only 1A
+```{r }
+Plot_uniq
+```
+
+Review improvements
+* Log-scale colors
+* Missing data : dark grey legend
+* Make the Netherlands stand out as an outlier
+
+```{r }
+Make_plot2 = function(N_per_country){
+        read_csv("/mnt/project/Make_Associations/Phenotypes/Countries.csv", col_names = F) %>% rename(Country=X1, region=X2 ) -> Translation
+        world <- map_data("world") %>% as_tibble() %>% filter(!region == "Antarctica") %>% mutate(is_netherlands = ifelse(region == "Netherlands", "Netherlands", "Other"))
+
+        world %>% left_join(Translation, relationship = "many-to-many", by="region" ) %>% left_join(N_per_country, relationship = "many-to-many", by="Country" ) %>%
+        ggplot() + geom_map( map = world, aes(x=long, y=lat, map_id = region, fill=Number_of_samples, color = is_netherlands), size = 0.1 ) + theme_void() +  ylim(-50, 80 ) +
+        scale_fill_gradientn(colours = c("#f3b03b", "#dc9832", "#bd802b", "#9f6923", "#80511a", "#613913", "#41210a"), na.value = "darkgray", trans = "log", labels = scales::number_format(accuracy = 1) ) +
+        scale_color_manual( values = c("Netherlands" = "red", "Other"="white" ) ) + guides(color = "none")  -> Plot
+        return(Plot)
+}
+
+```
+
+With log-scale
+```{r }
+N_per_country_uniq %>% mutate(Number_of_samples = Number_of_samples ) %>% Make_plot2() -> Plot_uniq_log 
+Plot_uniq_log + labs(fill = "Samples") -> Plot_uniq_log
+ggsave("Figures/1A.pdf", Plot_uniq_log, width=W, height=H)
+```
+
+Panel B
+* Phylum colors on 1B are not really visible
+
+```{r }
+read_tsv("/mnt/project/SGB_abundances/Result/Prevalence.tsv") -> Prevalences
+Prevalences %>% filter(Continent == "All") -> Prevalences
+str_split(Prevalences$SGB, "\\|") %>% lapply( function(x){ x[length(x)]} ) %>% unlist() ->SGB_names
+Prevalences %>% rename( Taxonomy = SGB) %>% mutate(SGB = SGB_names) -> Prevalences
+read_tsv("/mnt/project/Make_Associations/Association/Tree_sizes2.txt") -> tree_size
+str_split(tree_size$Tree, "\\.") %>% lapply( function(x){ x[2]} ) %>% unlist() ->SGB_names
+tree_size %>% mutate(SGB = SGB_names) %>% left_join(Prevalences) -> for_plot
+
+str_split(for_plot$Taxonomy, "\\|") %>% lapply( function(x){ str_replace(x[2], "p__", "") } ) %>% unlist() -> phyla
+```
+Test model
+```{r }
+lm( N_tips ~ Prevalence , for_plot ) -> linear_model 
+exp_model <- nls(N_tips ~ a * exp(b * Prevalence), data = for_plot %>% drop_na(), start = c(a=74, b=6.8)  )  
+summary(linear_model)
+summary(exp_model)
+```
+Plot
+```{r }
+for_plot %>% mutate(Phylum = phyla) %>% mutate(Phylum = ifelse(Phylum %in% c("Bacteroidetes", "Firmicutes","Proteobacteria", "Verrucomicrobia", "Lentisphaerae", "Actinobacteria"), Phylum, "Other" ) ) %>%
+  ggplot(aes(x=Prevalence, y=N_tips )) + geom_point( aes(col=Phylum, alpha=ifelse(N_tips<300,0.2,0.6) ), size=2) + 
+  geom_hline(yintercept = 300, linetype=2,  col= "black", linewidth=1 ) +
+  theme_bw() + ylab("Number of samples\n in SGB phylogeny") + xlab("SGB global prevalence") +
+  #geom_smooth(method="lm", formula= (y ~ log10(x)), se=FALSE, linetype = 1) +
+  scale_color_manual(values = color_mapping) + scale_y_log10() + guides(alpha = FALSE) + theme(
+    axis.text = element_text(size = 19), 
+    axis.title = element_text(size = 19), 
+    legend.text = element_text(size = 19),
+    legend.title =  element_text(size = 19)
+  ) -> Prevalence_vs_treeSize
+Prevalence_vs_treeSize
+ggsave("Figures/2A.pdf", Prevalence_vs_treeSize, width=W, height=H)
+
+```
+
+
+
+
+
+Panel C
+Prepare data
+```{r }
+Info = read_tsv("/mnt/project/Make_Associations/Association/Tree_sizes2.txt")
+SGB_taxonomy = read_tsv("/mnt/project/Make_Associations/Phenotypes/mpa_vJan21_CHOCOPhlAnSGB_202103_species.txt.bz2", col_names = F )
+
+#1. From Info, get the SGB name and retreive its complete taxonomy from SGB_taxonomy.
+extract_parts <- function(data_frame, column_name) {
+  extracted_names <- sub(".*\\.(.*)\\.Tree.*", "\\1", data_frame[[column_name]])
+  numeric_parts <- gsub("\\D+", "", extracted_names)
+  # Extract part before numbers and after "__"
+  before_numbers <- str_split(extracted_names, "_") %>% sapply(., function(x) x[[3]]) %>% gsub("\\d+", "", .)
+  return(tibble(Tree =data_frame$Tree  ,SGB = str_replace(extracted_names, "t__","") , SGB_name = numeric_parts, Type = str_replace(before_numbers, "_group","")  ))
+}
+SGB_Tree = extract_parts(Info, "Tree")
+left_join(Info, SGB_Tree) -> Info
+
+#2. Assess whether the tree was used for analysis or not
+Info %>% filter( Type == "SGB") %>% mutate(Included_analysis = ifelse(N_tips < 300, F, T ) ) -> Info
+print("Check all trees used for association")
+Info %>% group_by(Included_analysis ) %>% summarise(N = n()) %>% print()
+
+#3. Combine tree info with taxonomy info
+SGB_taxonomy %>% rename(SGB=X1, Taxonomy=X2 ) %>% mutate(Known = ifelse( grepl(Taxonomy, "_SGB"), F, T ) ) -> SGB_taxonomy
+Info = left_join(Info,SGB_taxonomy)
+#High level overview
+Info %>% mutate(Phylum = str_split(Taxonomy, "\\|", simplify = TRUE)[, 2]) %>% mutate(Phylum = str_split(Phylum, "__", simplify = TRUE)[, 2])  -> Info
+Info %>% rename(Number_samples_phylogeny = N_tips  ) -> Info
+
+#4. Combine all info with SGB tree
+read.tree("/mnt/project/Make_Associations/Phenotypes/mpa_vJan21_CHOCOPhlAnSGB_202103.nwk") -> SGB_tree
+keep.tip(SGB_tree, Info$SGB_name) -> SGB_tree
+
+```
+
+Prepare tree, find MCRAs
+
+
+```{r }
+Info %>%   select(SGB_name, everything())  %>% mutate(Log10_number_samples = log10(Number_samples_phylogeny)  ) %>% mutate(Taxonomic_group = ifelse(grepl("Archa", Taxonomy ), "Archaea", "Bacteria" ) ) -> Info2
+
+#Reroot on archaea
+Phylum_name = "Euryarchaeota"
+leafs_ids =  filter(Info, Phylum == Phylum_name)$SGB_name
+leaf_nodes <- match(leafs_ids, SGB_tree$tip.label)
+Root = leaf_nodes[3] #2066
+SGB_tree %>% root(., outgroup = Root) -> SGB_tree2
+
+Find_node_ancestor = function(Phylum_name = "Firmicutes", subsample=50, SGB_tree=SGB_tree2){
+  leafs_ids =  filter(Info, Phylum == Phylum_name)$SGB_name
+  if (length(leafs_ids) > subsample){ sample(leafs_ids, subsample) -> leafs_ids } 
+  leaf_nodes <- match(leafs_ids, SGB_tree$tip.label)
+  #thresh = mean(leaf_nodes) + 3*sd(leaf_nodes)
+  #leaf_nodes = leaf_nodes[ leaf_nodes < thresh   ]
+  if (Phylum_name == "Proteobacteria"){ leaf_nodes = leaf_nodes[leaf_nodes<600] }
+  if (Phylum_name == "Actinobacteria"){ leaf_nodes = leaf_nodes[leaf_nodes>1500] }
+  
+  common_ancestor <- getMRCA(SGB_tree, leaf_nodes)
+  #print(Phylum_name) ; print(leaf_nodes) ; print(common_ancestor)
+  tibble(node =common_ancestor, Phylum_group = Phylum_name  ) %>% return()
+}
+
+set.seed(1343)
+Find_node_ancestor("Actinobacteria", subsample=500) %>% rbind( Find_node_ancestor("Bacteroidetes") ) %>% 
+  rbind( Find_node_ancestor("Firmicutes") ) %>% rbind(Find_node_ancestor("Proteobacteria",subsample=500 )) %>%
+  rbind( Find_node_ancestor("Verrucomicrobia",subsample=200) ) %>% rbind(Find_node_ancestor("Lentisphaerae") ) %>% rbind( Find_node_ancestor("Candidatus_Melainabacteria") ) -> Annotation_phyla
+
+```
+
+Statistics included/ not included
+```{r }
+#Percentae of incldued taxa
+Info2 %>% group_by( Included_analysis )  %>% summarise(N = n()) %>% mutate(Perc = 100* (N / sum(N))  ) %>% arrange(desc(Perc))
+#Percentage of included taxa per phylum
+Info_summary <- Info2 %>% group_by(Included_analysis, Phylum) %>% summarise(N = n()) %>% ungroup()
+Phylum_totals <- Info_summary %>%  group_by(Phylum) %>% summarise(Total_N = sum(N))
+Info_summary %>% left_join(Phylum_totals, by = "Phylum") %>% mutate(Percentage = (N / Total_N) * 100) %>%
+  select(Included_analysis, Phylum, N, Total_N, Percentage) %>% filter(Included_analysis == T) %>%  arrange(desc(Percentage))
+
+```
+
+Run plot
+```{r }
+ggtree(SGB_tree2, layout="fan", open.angle=15, size=0.1)  %<+% Info2   -> p
+
+p +   geom_balance(node=filter(Annotation_phyla, Phylum_group=="Bacteroidetes")$node  , fill=color_mapping["Bacteroidetes"], color=NA, alpha=0.2) + geom_cladelab(node=filter(Annotation_phyla, Phylum_group=="Bacteroidetes")$node, label= "Bacteroidetes", angle=0, fontsize=3, vjust=.1  ) + #Bacteroidetes
+  geom_balance(node=filter(Annotation_phyla, Phylum_group=="Firmicutes")$node  , fill=color_mapping["Firmicutes"], color=NA, alpha=0.2) + geom_cladelab(node=filter(Annotation_phyla, Phylum_group=="Firmicutes")$node, label= "Firmicutes", angle=0, fontsize=3, vjust=.1  ) + #Firmicutes
+  geom_balance(node=filter(Annotation_phyla, Phylum_group=="Proteobacteria")$node  , fill=color_mapping["Proteobacteria"], color=NA, alpha=0.2) + geom_cladelab(node=filter(Annotation_phyla, Phylum_group=="Proteobacteria")$node, label= "Proteobacteria", angle=0, fontsize=3, vjust=.5  ) + #Proteobacteria
+  geom_balance(node=filter(Annotation_phyla, Phylum_group=="Verrucomicrobia")$node  , fill=color_mapping["Verrucomicrobia"], color=NA, alpha=0.2) + geom_cladelab(node=filter(Annotation_phyla, Phylum_group=="Verrucomicrobia")$node, label= "Verrucomicrobia", angle=45, fontsize=3, vjust=0  ) + #Verrucomicrobia
+  geom_balance(node=filter(Annotation_phyla, Phylum_group=="Lentisphaerae")$node  , fill=color_mapping["Lentisphaerae"], color=NA, alpha=0.2) + geom_cladelab(node=filter(Annotation_phyla, Phylum_group=="Lentisphaerae")$node, label= "Lentisphaerae", angle=55, fontsize=3, vjust=0  ) + #Lentisphaerae
+  geom_balance(node=filter(Annotation_phyla, Phylum_group=="Candidatus_Melainabacteria")$node  , fill=color_mapping["Candidatus_Melainabacteria"], color=NA, alpha=0.2) + geom_cladelab(node=filter(Annotation_phyla, Phylum_group=="Candidatus_Melainabacteria")$node, label= "Candidatus_Melainabacteria", angle=0, fontsize=3, vjust=.1  ) +  #Candidatus_Melainabacteria
+  geom_balance(node=filter(Annotation_phyla, Phylum_group=="Actinobacteria")$node  , fill=color_mapping["Actinobacteria"], color=NA, alpha=0.2) + geom_cladelab(node=filter(Annotation_phyla, Phylum_group=="Actinobacteria")$node, label= "Actinobacteria", angle=0, fontsize=3, vjust=.1  ) + #Actinobacteria
+  new_scale_fill() + geom_tippoint(aes(col=Included_analysis ), size=0.75) + scale_color_manual( values = c( "FALSE"="grey", "TRUE" = "#E83845") ) + theme(legend.position="bottom")-> SGB_Tree2
+
+SGB_Tree2
+
+```
