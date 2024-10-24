@@ -219,3 +219,74 @@ sim_df %>% mutate(T_stat = elpd_diff/elpd_se, P_value = T_stat_P(T_stat), P_bonf
 
 
 ```
+
+
+
+## Phenotype Permutations and sigma estimation
+
+Previously we showed that sigma_phylo was estimated in the model and corresponded with the term that multiplied to the similarity between strains:  
+`true_phylo_effects = sigma_phylo * MASS::mvrnorm(1, mu = rep(0, n), Sigma = cor_mat)`. 
+By repeating all associations while permuting the phenotypes we can get an idea about the null distribution of this term.  
+All sigma results have been merged in a table, which we will compare to the acutal sigma obtained in the models.
+
+```{r}
+Sigma_null = read_tsv('/mnt/project/Make_Associations/Association/Null_Sigma.tsv')
+
+Sigma_null %>%  mutate(ID_assocaition = paste0(Phenotype,"-",SGB), .before=1 )  %>% mutate(ID_assocaition2 = paste0(Phenotype,"-",SGB, '-', Continent), .before=1 ) %>% mutate(T_stat=mean/sd )-> Sigma_null
+df %>% mutate(ID_assocaition = paste0(Phenotype,"-",SGB), .before=1 ) %>% mutate(ID_assocaition2 = paste0(Phenotype,"-",SGB, '-', Continent), .before=1 ) %>% mutate(T_stat=phylo_mean/phylo_sd ) -> df
+
+
+ggplot() + geom_density(data = Sigma_null, aes( x=T_stat ), alpha=0.3, fill = "darkred" ) + theme_bw() + xlim(0, 21)  + xlab('T_stat in Null') -> Null
+ggplot() + geom_density(data = df, aes( x=T_stat, fill=Cutoff ), alpha=0.3 )  + scale_fill_manual(values = c('TRUE'='skyblue','FALSE'= 'tomato'  ) ) + theme_bw() + xlim(0, 21) + xlab('T_stat') -> FoundValues
+Null / FoundValues
+
+```
+
+
+Check per assocation how does the sigma compare to the null
+
+```{r }
+Get_P = function( Null, Real ){
+  return( mean(Real$T_stat <= Null$T_stat) )
+}
+Calculated_null_Ps = function( Associations ){
+  Tibble_assocation = tibble()
+  for (Assocation in  Associations){
+    Info = str_split(Assocation, '-')[[1]]
+    #1. 
+    Null_association = Sigma_null %>% filter(ID_assocaition2==Assocation)
+    Association = df %>% filter(ID_assocaition2==Assocation)
+    P =Get_P(Null_association, Association)
+    #2. 
+    Null_association = Sigma_null %>% filter(SGB==Info[[2]], Continent == Info[[3]] )
+    P2 =Get_P(Null_association, Association)
+    #3.
+    Null_association = Sigma_null %>% filter( Continent == Info[[3]] )
+    P3 = Get_P(Null_association, Association)
+    
+    Tibble_assocation = rbind(Tibble_assocation, tibble(Association =Assocation, P_nullAssociation=P, P_nullSGB = P2, P_nullContinent = P3  ))
+  
+  }
+  return(Tibble_assocation) 
+}
+
+#Significant assocations
+Tibble_assocation = Calculated_null_Ps(filter(df,Cutoff==T )$ID_assocaition2 )
+Tibble_assocation$P_nullAssociation %>% summary()
+Tibble_assocation$P_nullSGB %>% summary()
+Tibble_assocation$P_nullContinent %>% summary()
+
+#Non significnat associations
+Tibble_noassocation =  Calculated_null_Ps(filter(df,Cutoff==F )$ID_assocaition2 )
+
+Tibble_noassocation$P_nullAssociation %>% summary()
+Tibble_noassocation$P_nullSGB %>% summary()
+Tibble_noassocation$P_nullContinent %>% summary()
+
+
+
+
+```
+
+
+

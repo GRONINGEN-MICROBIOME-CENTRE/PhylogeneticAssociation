@@ -72,6 +72,14 @@ one_hot_encode <- function(df, column_name) {
     separate_rows({{column_name}}, sep = ";") %>%
     pivot_wider(names_from = {{column_name}}, values_from = {{column_name}}, values_fn = length, values_fill = 0)
 }
+save_pheatmap_pdf <- function(x, filename, width=7, height=7) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height )
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
 subspecies_colors <- c("subsp. infantis" = "brown", "subsp. suis"= "darkturquoise", "subsp. longum"="#CAB2D6")
 clade_colors <- c("suis clade"="#ccfbfe", "infantis clade" = "#a04668", "longum clade" = "grey" )
 my_palette <- c("lightgrey", "steelblue")
@@ -145,7 +153,7 @@ ggsave("Figures/BLongum.pdf", Plot_Blongum , width = 7, height =7)
 
 Split tree in the adult-enriched clade, and infant-enriched clades
 ```{r }
-AdultClade = Tree$tip.label[getDescendants(Tree, node=5831+182)] ; AdultClade[!is.na(AdultClade)] 
+AdultClade = Tree$tip.label[getDescendants(Tree, node=5831+182)] 
 longum_infant %>% mutate(Adult_clade = ifelse( sample_id %in% AdultClade, T, F )) -> longum_infant
 
 drop.tip(Tree, AdultClade ) -> Tree_sub3
@@ -191,7 +199,7 @@ longum_infant %>% filter(sample_id %in% Tree_sub3$tip.label[ getDescendants(Tree
 
 We will show this is likely an annotation issue showing : 1. ANIs, 2. Pangenomic gene Presnece/Absence
 
-ANIs
+### ANIs
 ```{r }
 read_tsv("/mnt/project/Make_Associations/Functional_enrichment/Bifido_Ref/Pangenome/ANI",col_names = F) %>%
   mutate(X1= str_replace(X1, ".gff", ""),X2= str_replace(X2, ".gff", "") ) %>% select(X1, X2, X3) %>%
@@ -224,9 +232,13 @@ plot heatmap reference genomes ANI
 Anno = mutate(df_ani, Clade= ifelse(X1 %in% Wrong_assig$sample_id, 1, 0 )) %>% left_join(longum_infant %>% select(sample_id, Subspecies), by=c("X1" = "sample_id" ) ) %>% select(X1,Clade,Subspecies)
 Anno %>% mutate(Clade = ifelse(Clade == 1, "suis clade", ifelse(X1 %in%AdultClade, "longum clade", "infantis clade"))) -> Anno
 Anno %>% rename(Subs. = Subspecies) -> Anno
-pheatmap::pheatmap(df_ani2, annotation_row=Anno %>% as.data.frame() %>% column_to_rownames('X1')  , annotation_colors = list(`Subs.` = subspecies_colors, Clade = clade_colors)   ) 
+pheatmap::pheatmap(df_ani2, annotation_row=Anno %>% as.data.frame() %>% column_to_rownames('X1')  , annotation_colors = list(`Subs.` = subspecies_colors, Clade = clade_colors), show_colnames = FALSE   ) -> HeatmapANI 
 ```
-Show the average ANI to each of the clades fro the suspected missannotation
+```{r }
+save_pheatmap_pdf( HeatmapANI, "/mnt/project/Make_Associations/Git/PhylogeneticAssociation/Analyses_revision/Figures/LongumANI.pdf", height = 4 )
+```
+
+Show the average ANI to each of the clades for the suspected missannotation
 ```{r Average ANI  }
 Find_Average_ANI_with_Clade = function(Anno, df_ani2, Genome_ID ){
 #  Genome_ID = c("GCA_000092325", "GCA_00155415", "GCA_00196575")
@@ -243,7 +255,7 @@ Find_Average_ANI_with_Clade = function(Anno, df_ani2, Genome_ID ){
 Find_Average_ANI_with_Clade(Anno, df_ani2 ,"GCA_000092325")
 ```  
 
-Pangenome analysis
+### Pangenome analysis
 ```{r }
 read_csv("/mnt/project/Make_Associations/Functional_enrichment/Bifido_Ref/Pangenome/gene_presence_absence.csv") -> Genes
 colnames(Genes)[grepl("GCA", colnames(Genes))] -> Samples 
@@ -268,4 +280,120 @@ PangenomeInfo2 %>% select(any_of( c(Tree_sub3$tip.label, filter(longum_infant, S
 
 ```
 
+
+### dbcan
+```{r}
+dbcan = read_tsv("/mnt/project/Make_Associations/Functional_enrichment/Bifido_Ref/DBCAn/DBCAn_output.tsv")
+Anno = mutate(df_ani, Clade= ifelse(X1 %in% Wrong_assig$sample_id, 1, 0 )) %>% left_join(longum_infant %>% select(sample_id, Subspecies), by=c("X1" = "sample_id" ) ) %>% select(X1,Clade,Subspecies) %>% as.data.frame() %>% column_to_rownames("X1")
+
+left_join(dbcan, rownames_to_column(Anno, "ID"), by="ID" ) -> dbcan
+
+
+  
+dbcan %>% select(ID, Subspecies, dbCAN_sub)  %>% mutate(Subspecies = ifelse(ID == "GCA_000092325", "subsp. suis", Subspecies ))  -> dbcan
+
+dbcan %>% mutate(present = 1) %>% distinct() %>%  spread(dbCAN_sub, present)  -> Presence
+Presence %>%  filter(! is.na(Subspecies ) ) -> Presence
+Presence[is.na(Presence)] = 0
+
+subspecies = unique(dbcan$Subspecies)
+Results_dbcan = tibble()
+for ( subs in unique(dbcan$dbCAN_sub) ){
+  To_test = Presence %>% select( "ID","Subspecies", subs  ) 
+  Prevalence_longum = filter(To_test, Subspecies=="subsp. longum" )[[subs]] %>% mean()
+  Prevalence_infantis  = filter(To_test, Subspecies=="subsp. infantis")[[subs]] %>% mean()
+  Prevalence_suis  = filter(To_test, Subspecies=="subsp. suis" )[[subs]] %>% mean()
+  if (Prevalence_longum == 1 & Prevalence_infantis==1 &  Prevalence_suis==1){ next }
+  if (Prevalence_longum == 0 & Prevalence_infantis==0 &  Prevalence_suis==0){ next }
+
+  
+  contingency_table <- To_test %>%
+  group_by(Subspecies, !!sym(subs)  ) %>%
+  summarize(count = n()) %>%
+  pivot_wider(names_from = !!sym(subs), values_from = count, values_fill = 0) %>%
+  rename(present = `1`, absent = `0`)
+  
+  test_result <- fisher.test(as.matrix(contingency_table[, c("present", "absent")]))
+
+  tibble(Cazyme = subs ,P =  test_result$p.value, Longum = Prevalence_longum, Infantis = Prevalence_infantis, Suis = Prevalence_suis  ) %>% rbind(Results_dbcan, . ) -> Results_dbcan
+} 
+Results_dbcan %>% arrange(P) %>% mutate(FDR = p.adjust(P, 'fdr') ) -> Results_dbcan
+write_tsv(Results_dbcan, '/mnt/project/Make_Associations/Git/PhylogeneticAssociation/Analyses_revision/Supp_Tables_update/dbCan_subfam.tsv')
+
+```
+
+
+Give annotation and run enrichment
+```{r }
+readxl::read_excel("/mnt/project/Make_Associations/Phenotypes/cazymes_annotation.xlsx", sheet=1, skip = 1) -> Annotation
+
+
+Results_dbcan$Subfamily = Results_dbcan$Cazyme %>% sapply( function(x){ str_split(x, "_")[[1]][1] } )
+Results_dbcan %>% left_join( Annotation ) -> Results_dbcan
+
+
+# Function  
+Test_enrichment_cazyme = function(Subspecies ="Longum", Column_enrich = "FUNCTION_AT_DESTINATION_1" ){
+  Results_dbcan %>% filter(FDR<0.05) %>% filter(!!sym(Subspecies) >= 1) -> sig_results
+  sig_results_split <- sig_results %>%
+  separate_rows(!!sym(Column_enrich), sep = ",")
+  observed_counts <- sig_results_split %>%
+  group_by(!!sym(Column_enrich)) %>%
+  summarise(count = n())
+
+  
+  total_associations <- Results_dbcan %>%
+  separate_rows(!!sym(Column_enrich), sep = ",") %>%
+  group_by(!!sym(Column_enrich)) %>%
+  summarise(total_count = n()) 
+
+  enrichment_data <- observed_counts %>%
+  inner_join(total_associations, by = Column_enrich ) %>% drop_na()
+  
+  fisher_results = tibble()
+  for ( Entry in unique(enrichment_data[[1]] ) ){
+    print(Entry)
+    row1 = filter(enrichment_data, !!sym(Column_enrich) ==  Entry)  %>% select(-Column_enrich)
+    row2 = filter(enrichment_data, !!sym(Column_enrich) !=  Entry) %>% select(-Column_enrich) %>%  apply(2, sum)
+    rbind( row1, row2 ) %>% fisher.test(alternative = "greater") -> Pvalue
+    tibble( Category = Entry,Ratio_entry = (row1[1]/row1[2])[[1]] , Ratio_rest= (row2[1]/row2[2])[[1]], p_fisher=Pvalue$p.value, Odds_ratio = Pvalue$estimate  ) %>% rbind( fisher_results, . ) -> fisher_results
+    
+  }
+  
+  #fisher_results <- enrichment_data %>%
+  #rowwise() %>%
+  #mutate(fisher_p = fisher.test(matrix(c(count, total_count - count,
+  #                                       nrow(sig_results_split) - count,
+  #                                       nrow(Results_dbcan) - nrow(sig_results_split) -    #(total_count - count)), nrow = 2), alternative = "greater")$p.value)
+  
+
+  fisher_results %>% arrange(p_fisher) %>% return()
+  
+}
+
+Test_enrichment_cazyme('Longum', "Glycan_annotation" ) %>% mutate(Subspecies = 'Longum' , .before=1) #Enrichment of dietary fiber enzymes
+Test_enrichment_cazyme('Infantis', "Glycan_annotation" )%>% mutate(Subspecies = 'Infantis' , .before=1) #Enrichment of mucin degrading and 'Other'
+Test_enrichment_cazyme('Suis', "Glycan_annotation" )%>% mutate(Subspecies = 'Suis' , .before=1) #enrichmng of ditary fibers degrading
+
+
+
+```
+
+Display cazymes heatmap
+
+```{r }
+Results_dbcan %>% mutate(`FDR<0.05` = ifelse(FDR<0.05, 'Sign', 'Non-sign' ))  %>% column_to_rownames('Cazyme') %>% mutate(Origin = ifelse( grepl('Plant', ORIGIN) & grepl('Animal', ORIGIN), "Both", ifelse(grepl('Plant', ORIGIN), "Plant", ifelse(grepl('Animal', ORIGIN), "Animal", "Other" )  ) ) ) -> Annotations_caz_sign
+
+
+
+Heatmap_cazy = Presence %>% select(-Subspecies) %>% as.data.frame() %>% column_to_rownames('ID') %>% select(rownames(Annotations_caz_sign)) %>% pheatmap::pheatmap(annotation_row = Presence %>% select(ID, Subspecies) %>% as.data.frame() %>% column_to_rownames('ID'), show_colnames = FALSE, annotation_colors = list(Subspecies = subspecies_colors, `FDR<0.05` = c('Sign'='red', 'Non-sign'='grey'), Origin = c('Plant' = '#16DB93', 'Animal' ="#A4036F", "Both"='#048BA8', 'Other'='grey' )  ) , color = my_palette,legend = F, fontsize_row = 4,  annotation_legend = T, annotation_col =  select(Annotations_caz_sign, c(`FDR<0.05`, Origin )  ) )
+
+```
+
+Save heatmap
+
+```{r }
+save_pheatmap_pdf(Heatmap_cazy, "/mnt/project/Make_Associations/Git/PhylogeneticAssociation/Analyses_revision/Figures/dbCan_subfam.pdf")
+
+```
 

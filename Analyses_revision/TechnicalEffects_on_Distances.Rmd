@@ -142,6 +142,22 @@ All_distances %>% ggplot(aes(y= log10(distance), x=Same_subject )) + geom_boxplo
 
 Distr_nolog | Distr_log
 ```
+We can also show this taking the median distance per species
+```{r }
+All_distances %>% group_by(Same_subject,SGB) %>% summarise(Median_per_SGB = median(distance)  ) %>% ungroup() -> Median_per_SGB
+Median_per_SGB %>% spread(Same_subject, Median_per_SGB) -> Spread_median
+wilcox.test( Spread_median$`FALSE`, Spread_median$`TRUE` , paired=T )
+Median_per_SGB~Same_subject, Median_per_SGB) %>% summary()
+Median_per_SGB %>% ggplot(aes(x=Same_subject, y= log10(Median_per_SGB) )) + geom_boxplot() + theme_bw() + geom_line(aes(group=SGB), linetype=2, alpha=0.2 ) + geom_sina() 
+```
+Also at the level of sample
+```{r }
+All_distances %>% filter(Same_subject == T) %>% group_by(subject_id_1) %>% summarise(Median_per_subject = median(distance)  ) %>% ungroup() -> Median_per_subject
+All_distances %>% filter(Same_subject == F) %>% group_by(subject_id_1) %>% summarise(Median_per_subject = median(distance)  ) %>% ungroup() -> Median_different_subject
+
+Median_per_subject %>% mutate(Same_subject = T) %>% rbind( Median_different_subject %>% mutate(Same_subject = F)  ) %>% ggplot(aes(x=Same_subject, y=Median_per_subject)) + geom_boxplot(outlier.shape = NA) + theme_bw() + geom_sina()
+
+```
 
 Fraction of pairs above one phylogenetic distance
 ```{r }

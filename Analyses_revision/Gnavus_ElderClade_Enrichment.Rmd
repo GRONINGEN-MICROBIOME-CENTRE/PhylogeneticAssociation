@@ -110,18 +110,18 @@ Plot_age_effect = function(Tree, Phenotypes, Phylo_age){
   keep.tip(Tree, Phylo_age$sample_id) -> Tree
   print(Tree)
   
-  Phylo_age %>% mutate(Octagenarian = ifelse(Age>=80, T, F), Septuagenarian = ifelse(Age>=70, T, F), Nonagenarian =   ifelse(Age>=90, T, F))  -> Phylo_age
+  Phylo_age %>% mutate(`Age>=80` = ifelse(Age>=80, T, F), Septuagenarian = ifelse(Age>=70, T, F), Nonagenarian =   ifelse(Age>=90, T, F))  -> Phylo_age
   
   Node = GetNodeAncesterClade(Tree)
   print(paste0("MCA:",Node))
   #Plot tree
   ggtree(Tree, layout="fan", open.angle=15, size=0.1) %<+% Phylo_age  -> p
 p + geom_fruit( geom="geom_tile", mapping = aes(fill=phylo_effect_median), width=0.03,offset=0.1) + scale_fill_viridis_c(option = "magma") +
-  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Octagenarian), width=0.03,offset=0.1) + scale_fill_manual(values=c("TRUE"= "#E31A1C", "FALSE"="white") )  + 
-  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Age), width=0.03,offset=0.1 )  + scale_fill_viridis_c(option = "viridis") + geom_balance(node=Node  , fill="grey", color=NA, alpha=0.3) -> Tree_elderClade
+  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=`Age>=80`), width=0.03,offset=0.05) + scale_fill_manual(values=c("TRUE"= "#E31A1C", "FALSE"="white") )  + 
+  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Age), width=0.03,offset=0.05 )  + scale_fill_viridis_c(option = "viridis") + geom_balance(node=Node  , fill="grey", color=NA, alpha=0.3) -> Tree_elderClade
 
-  if ("Continent" %in% colnames(Phylo_age)  ){ 
-    Tree_elderClade + new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Continent), width=0.03,offset=0.1 ) + scale_fill_manual(values=c("Europe" = "#1f77b4", "Asia" = "#E31A1C"))  -> Tree_elderClade
+  if ("Continent" %in% colnames(Phylo_age) & length(unique(Phylo_age$Continent)) > 1   ){ 
+    Tree_elderClade + new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Continent), width=0.03,offset=0.05 ) + scale_fill_manual(values=c("Europe" = "#1f77b4", "Asia" = "#E31A1C"))  -> Tree_elderClade
   }
     
   return(Tree_elderClade)
@@ -132,11 +132,21 @@ p + geom_fruit( geom="geom_tile", mapping = aes(fill=phylo_effect_median), width
 
 Plot results from XuQ_2021 assocation
 ```{r }
-Plot_age_effect(Tree_gnavus_all, Phenos_merge, Age_xu)
+Plot_age_effect(Tree_gnavus_all, Phenos_merge, Age_xu) -> Plot
+
 ```
 Plot results from association in all Asian samples
 ```{r }
-Plot_age_effect(Tree_gnavus_all, Phenos_merge, Age_Asia)
+Plot_age_effect(Tree_gnavus_all, Phenos_merge, Age_Asia)-> Plot
+ggsave("/mnt/project/Make_Associations/Git/PhylogeneticAssociation/Analyses_revision/Figures/Rgnavus_elderclade_Asia.pdf",Plot)
+Plot
+```
+
+```{r }
+rbind ( Age_europe, Age_Asia) -> Combined_info
+Plot_age_effect(Tree_gnavus_all, Phenos_merge, Combined_info) -> Plot
+ggsave("/mnt/project/Make_Associations/Git/PhylogeneticAssociation/Analyses_revision/Figures/Rgnavus_elderclade_AsiaEurope.pdf",Plot)
+Plot
 ```
 
 ## Enrichment clade
@@ -214,8 +224,12 @@ Age_europe2 = Enrichment_elder(Tree_gnavus_all, Phenos_merge, Combined_info, Is_
 ```
 Test after removal of <18 yo
 ```{r }
-rbind ( Age_europe, Age_Asia) -> Combined_info
 Age_europe2 = Enrichment_elder(Tree_gnavus_all, Phenos_merge, Combined_info %>% filter(Age>=18), Is_Eur=T)
+```
+
+```{r }
+Combined_info2 = Enrichment_elder(Tree_gnavus_all, Phenos_merge, Combined_info %>% filter(Age>=18), Is_Eur=F)
+
 ```
 
 ## Confounding
@@ -246,6 +260,32 @@ ToTest_Europe2 %>% group_by(Elder_clade) %>% summarise(n()) %>% print()
 ToTest_Europe2 %>% glmer( as.factor(Elder_clade) ~ Age + Sex + BMI + scale(number_reads) + (1|study_name), ., family=binomial ) %>% summary()
 
 ```
+
+Check urbanicity in the DMP, where urbanicity index is available
+First check that we replciate signal in GacesaR_2022 (where we have urbanicity information)
+```{r}
+Age_europe2 %>% filter(study_name == "DAG3") %>%  group_by(Elder_clade) %>% summarise(n())
+Age_europe2 %>% filter(study_name == "DAG3") %>% glm( as.factor(Elder_clade) ~ Age, ., family=binomial  ) %>% summary()
+```
+Check urbanicity info
+```{r }
+#Test including urbanicity
+Age_europe2 %>%  filter(study_name == "DAG3") %>% left_join(select(Phenos, ID_anal, Urbanicity), by=c('sample_id' = "ID_anal")  ) -> Test_urbanicty
+Test_urbanicty$Urbanicity %>% summary()
+
+Test_urbanicty  %>% lm(Age ~ Urbanicity, . ) %>% summary()
+
+```
+
+```{r }
+Test_urbanicty %>% glm( as.factor(Elder_clade) ~ Age + Urbanicity, ., family=binomial  ) %>% summary()
+
+Test_urbanicty %>% ggplot(aes(x=Elder_clade, y=Age, fill=as.factor(Urbanicity)  )) + geom_boxplot(color='grey') + ggforce::geom_sina(color='grey') + theme_bw() + scale_fill_manual( values=c('#98C1D9', '#6969B3', '#533A7B', '#4B244A', '#2C142B' ) )
+
+```
+
+
+
 ## Gene enrichment test
 
 
@@ -566,4 +606,47 @@ print(Test_p$p.value) ; print(Test_p$estimate)
 
 
 
+## Roary pangenome
+```{r readroary}
+Prepare_roary = function(Tree_gnavus_all){
+  read_csv("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/Analysis_nonagenarianClade/Roary_scripts/rgnavus_roary_1728930398/gene_presence_absence.csv")-> GeneContent
+  Columns_k = colnames(GeneContent)[15:length(colnames(GeneContent))]
+  GeneContent %>% select(c("Gene", Columns_k ) ) -> GeneContent2
+  GeneContent2 %>% as.data.frame() %>% column_to_rownames("Gene") %>% mutate_all(~ ifelse(is.na(.), 0, 1)) %>%  rownames_to_column("Gene") %>% as_tibble() -> GeneContent2
+  GeneContent2 %>% column_to_rownames("Gene") %>% t() %>% as_tibble() %>% mutate(MAG_ID = colnames(GeneContent2 %>% select(-Gene)), .before=1 ) -> GeneContent2
+  
+  GeneContent2$MAG_ID %>% sapply( function(x){ if(grepl("bin", x)){ str_split(x, ".bin")[[1]][1] %>% return() }else{ return(x) }   }  ) -> IDs
+  GeneContent2 = GeneContent2 %>% mutate(ID_anal = IDs, .before=1) %>%
+   filter(ID_anal %in% Tree_gnavus_all$tip.label )
+}
+Select_genes = function(Combined_info2, GeneContent2){
+  Combined_info2 %>% left_join(GeneContent2, by=c("sample_id"="ID_anal") ) %>% select(Elder_clade, colnames(GeneContent2 %>% select(-ID_anal) ) ) %>% filter(! is.na( MAG_ID)  ) -> Genes_elder
+  
+  Genes_elder %>% group_by(Elder_clade) %>% summarise(n())
+  
+  Keep_genes = c()
+  for ( Gene_family in colnames(Genes_elder) ){
+    if ( Gene_family %in% c("Elder_clade", "MAG_ID" ) ) { next }
+    Prevalence_elder = mean(Genes_elder[Genes_elder$Elder_clade == T,][[Gene_family]])
+    #Prevalence_rest = mean(Genes_elder[Genes_elder$Elder_clade == F,][[Gene_family]])
+    if ( Prevalence_elder >= 0.9  ){ Keep_genes = c(Keep_genes, Gene_family) } 
+  }
+  return(Keep_genes)
+}
+```
 
+Replication of tree using MAG-based phylogenetic tree reconstructed with roary
+```{r }
+read.tree("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/Analysis_nonagenarianClade/Roary_scripts/rgnavus_roary_1728930398/accessory_binary_genes.fa.newick") -> Roary_phylogeny
+
+Roary_phylogeny$tip.label %>% sapply( function(x){ if(grepl("bin", x)){ str_split(x, ".bin")[[1]][1] %>% return() }else{ return(x) }   }  ) -> Roary_phylogeny$tip.label
+
+keep.tip(Roary_phylogeny, Tree_gnavus_all$tip.label[Tree_gnavus_all$tip.label %in% Roary_phylogeny$tip.label] ) -> Roary_phylogeny
+
+keep.tip(Roary_phylogeny, Combined_info2$sample_id[ Combined_info2$sample_id %in% Roary_phylogeny$tip.label] ) -> Roary_phylogeny
+
+
+ggtree(Roary_phylogeny, layout="fan", open.angle=15, size=0.1) %<+% Combined_info2  -> p
+  p + geom_fruit( geom="geom_tile", mapping = aes(fill=Elder_clade), width=0.03,offset=0.1) + scale_fill_manual(values=c("TRUE"= "#E31A1C", "FALSE"="white") )  + 
+  new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Age), width=0.03,offset=0.1 )  + scale_fill_viridis_c(option = "viridis") + new_scale_fill() + geom_fruit( geom="geom_tile", mapping = aes(fill=Continent), width=0.03,offset=0.1 ) + scale_fill_manual(values=c("Europe" = "#1f77b4", "Asia" = "#E31A1C"))
+```
