@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/us/r/bin/env python
 __author__ = ('Aitor Blanco Miguez (aitor.blancomiguez@unitn.it), '
               'Duy Tin Truong (duytin.truong@unitn.it), '
               'Francesco Asnicar (f.asnicar@unitn.it), '
@@ -605,8 +605,8 @@ def check_params(args):
         error('The clade markers file does not exist', exit=True)
     elif args.phylophlan_configuration and not os.path.exists(args.phylophlan_configuration):
         error('The phylophlan configuration file does not exist', exit=True)
-    elif len(args.samples)+len(args.references) < 4:
-        error('The main inputs samples + references are less than 4', exit=True)
+    #elif len(args.samples)+len(args.references) < 4:
+    #    error('The main inputs samples + references are less than 4', exit=True)
     for s in args.samples:
         if not os.path.exists(s):
             error('The input sample file \"{}\" does not exist'.format(s), exit=True)
