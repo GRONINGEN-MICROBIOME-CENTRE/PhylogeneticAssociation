@@ -319,13 +319,17 @@ GeneEnrichmentTest = function(DF_uniref, UniRef90_wide, Test = "logistic" ){
 
 
 Results_test = GeneEnrichmentTest( DF_uniref =  Info,UniRef90_wide = Gene_info , Test = "Fisher") 
+Results_test %>% mutate(FDR = p.adjust(P, "fdr") ) %>% arrange(P) -> Results_test
 write_tsv(Results_test, "Supp_Tables_update/Collinsella_GeneEnrichment_melanomaClade_highQMAGs.tsv")
 
+#N significant
+Results_test %>% group_by(FDR<0.05) %>% summarise(n())
+#Direction significance
+Results_test %>% filter(FDR<0.05)  %>% group_by(Odds_ratio > 1) %>% summarise(n())
 ```
 
 
-Pathway completion
-
+Add pathway information
 ```{r }
 read_rds("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/For_enrichment/UniRef90/ec.rds") -> ECs
 ECs_tibble <- enframe(ECs, name = "EC", value = "UniRef90")
@@ -339,7 +343,12 @@ merged_ec %>% drop_na() %>% group_by(Gene) %>% summarise(n()) #319/1,606 annotat
 
 merged_ec %>% left_join(Translate_EC_to_reaction %>% rename(EC = ec)) %>% distinct() -> Merged_info
 ```
-Test
+How many of the genes actually have an EC
+```{r }
+Merged_info %>% mutate(Has_EC = ifelse(is.na(EC), F, T )) %>% group_by(Has_EC ) %>% summarise(n())
+```
+Test Pathway completion
+
 ```{r }
 
 Enrichment_tables %>% stack() %>% as_tibble() %>% rename(Reaction =values , Pathways = ind  ) -> Pathwyas_tibble
@@ -407,11 +416,12 @@ Run_enrichment = function(Summary_stats, Table,Plot=F){
 ```
 
 ```{r }
+Input_enrichment = merged_ec %>% left_join(Translate_EC_to_reaction %>% rename(EC = ec)) %>% distinct() %>% dplyr::mutate(Odds_ratio =  log10(Odds_ratio) ) %>%  dplyr::rename(`z value` = Odds_ratio ) %>% mutate(Gene = Reaction)
 
-Run_enrichment(merged_ec %>% left_join(Translate_EC_to_reaction %>% rename(EC = ec)) %>% distinct() %>% dplyr::mutate(Odds_ratio =  log10(Odds_ratio) ) %>%  dplyr::rename(`z value` = Odds_ratio ) %>% mutate(Gene = Reaction)   ,  Table=Enrichment_tables )  %>% as_tibble() %>% arrange(pval) -> R_reaction
+Run_enrichment( Summary_stats =  Input_enrichment ,  Table=Enrichment_tables )  %>% as_tibble() %>% arrange(pval) -> R_reaction
 R_reaction %>% filter(padj < 0.05) 
 
-write_tsv(R_reaction, "Supp_Tables_update/Collinsella_PathwayEnrichment_melanomaClade_highQMAGs.tsv")
+write_tsv(R_reaction %>% select(-leadingEdge), "Supp_Tables_update/Collinsella_PathwayEnrichment_melanomaClade_highQMAGs.tsv")
 
 ```
 

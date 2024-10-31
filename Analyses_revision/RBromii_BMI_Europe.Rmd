@@ -235,17 +235,19 @@ Dutch_samples %>% lmer( BMI ~ Clade + Age + Sex + (1|study_name), . ) %>% summar
 ## Functional enrichment analysis
 Check genome quality
 ```{r }
+UniRef90 %>% filter(Completeness > 90) -> UniRef90
+Bromii_BMI %>% filter(sample_id %in% UniRef90$Sample) %>% group_by(Clade) %>% summarise(n()) 
+
 UniRef90 %>% distinct(Sample, .keep_all = T) %>% ggplot(aes(x=Completeness)) + geom_histogram() + theme_bw()
 UniRef90 %>% distinct(Sample, .keep_all = T) %>% ggplot(aes(x=Contamination)) + geom_histogram() + theme_bw()
 ```
 
 We can do run enrichment at the Gene level or at the product level. Gene level is way bigger.
 ```{r }
-Do_enrichment_uniref90 = function(ToTest=Bromii_BMI ,Feature = "Gene", Subset = T, Uniref = UniRef90, Test ="logistic" ){
+Do_enrichment_uniref90 = function(ToTest=Bromii_BMI ,Feature = "Gene", Uniref = UniRef90, Test ="logistic" ){
   ToTest %>% filter(! is.na(sample_id)) -> ToTest
-  if (Subset == T) { 
-    Uniref = Uniref %>% filter(Sample %in% filter(ToTest, Clade!="Other")$sample_id ) ->  Uniref
-  }
+  ToTest %>% mutate(Clade = ifelse( Clade != "Clade_higherBMI", "Other", "Clade_higherBMI" )) -> ToTest
+  
   
   Uniref %>% filter(Sample %in% ToTest$sample_id  )  %>% select( c("Sample", Feature)) %>% distinct(Sample, !!sym(Feature) , .keep_all = T) %>% mutate(Presence = 1) %>% spread( Feature, "Presence") -> UnirefTest
   #All missing values should be 0 for testing
@@ -261,16 +263,13 @@ Do_enrichment_uniref90 = function(ToTest=Bromii_BMI ,Feature = "Gene", Subset = 
   Results_test = tibble()
   N = 0
   for (Gene in names(Prevalences[Prevalences < 0.9 & Prevalences > 0.1]) ){
-    #Add pseudocount
-    #if (Gene %in% c("Study", "Sample", "Completeness", "Contamination", "Clade") ){ next }
-    mean(UnirefTest[Gene] %>% as_vector() ) -> Prevalence
+    #mean(UnirefTest[Gene] %>% as_vector() ) -> Prevalence
     #sum( filter(UnirefTest, Clade=="Clade_lowerBMI2"  )[Gene] %>% as_vector()) -> Prevalence_low
     mean( filter(UnirefTest, Clade=="Clade_higherBMI"  )[Gene] %>% as_vector() == 1 ) -> Prevalence_high
     mean( filter(UnirefTest, Clade=="Other"  )[Gene] %>% as_vector() == 1) -> Prevalence_other
     
     N = N + 1    
-    #print( c(N ,Gene) )
-    
+
     if (Test == "logistic"){
     
       if (Prevalence_high == 0  ){  
@@ -278,16 +277,24 @@ Do_enrichment_uniref90 = function(ToTest=Bromii_BMI ,Feature = "Gene", Subset = 
         next()
        }
         
-      Formula = paste0("`",Gene, "` ~ Clade + Completeness + Contamination") 
+      Formula = paste0("`",Gene, "` ~ Clade") 
       UnirefTest %>% glm(Formula , . , family=binomial()) %>% summary() -> Results
       Results$coefficients %>% as.data.frame() %>% rownames_to_column("Feature")  %>% filter(Feature %in%  c("CladeClade_higherBMI", "CladeClade_lowerBMI2" )) %>% as_tibble() %>% mutate(Gene = Gene, Prevalence_high = Prevalence_high, Prevalence_other=Prevalence_other ) %>% rbind(Results_test) -> Results_test
+    } else {
+    UnirefTest %>% group_by(!!sym(Gene), Clade) %>% summarise(N = n()) %>% ungroup() %>% drop_na() %>% spread(Clade, N) %>% ungroup() %>% as.data.frame() %>% column_to_rownames(Gene) -> Table_test
+      if (dim(Table_test)[1] < 2){ next }
+      Table_test[is.na(Table_test)] = 0
+      Table_test = Table_test + 1 #Add pseudcount
+  
+      Test_p = fisher.test(Table_test)
+      Fold_Change = Prevalence_high/Prevalence_other
+      Results = tibble( Prevalence_rest = Prevalence_other, Prevalence_clade = Prevalence_high, Fold=Fold_Change, P = Test_p$p.value, Odds_ratio = Test_p$estimate, Lower_bound = Test_p$conf.int[1], Upper_bound = Test_p$conf.int[2], Gene = Gene     ) 
+    Results_test = rbind(Results_test  , Results %>% mutate(Gene=Gene) )   
     }
-    }
+  }
   
   if ( Test == "logistic" ){ Results_test  %>% mutate(FDR = p.adjust(`Pr(>|z|)`, "fdr" ) ) -> Results_test
   } else { Results_test  %>% mutate(FDR = p.adjust(P, "fdr" ) ) -> Results_test }
-  print(Results_test)
-  
   return(list(Results_test,UnirefTest ))
 }  
 
@@ -296,17 +303,17 @@ Do_enrichment_uniref90 = function(ToTest=Bromii_BMI ,Feature = "Gene", Subset = 
 
 ```{r }
 
-Gene_enrichment = Do_enrichment_uniref90(Bromii_BMI , Feature ="Gene", Subset=F,  Uniref = UniRef90, Test ="logistic"  )
-
+Gene_enrichment = Do_enrichment_uniref90(Bromii_BMI , Feature ="Gene",  Uniref = UniRef90, Test ="fisher"  )
+Gene_enrichment[[1]] %>% arrange(P) %>% write_tsv('Supp_Tables_update/GeneEnrichment_RBromii_BMIclade.tsv') 
 
 ```
 Check top results
 ```{r }
-Gene_enrichment[[1]] %>% arrange( `Pr(>|z|)` ) %>% select(Gene, Prevalence_high, Prevalence_other, FDR)
+Gene_enrichment[[1]] %>% arrange( P ) %>% select(Gene, Prevalence_clade, Prevalence_rest, FDR)
 
-Gene_enrichment[[1]] %>% group_by(Estimate>0, FDR<0.05) %>% summarise(n())
+Gene_enrichment[[1]] %>% group_by(Odds_ratio<1, FDR<0.05) %>% summarise(n())
 ```
-We see more gene enriched (117) than depleted (4) in this clade with higher BMI. This might be due to the fact that the rest of the tree will have both regions withi/without certain genes, so an enrichment of depleteion is rare.
+We see more gene enriched (142) than depleted (35) in this clade with higher BMI. This might be due to the fact that the rest of the tree will have both regions withi/without certain genes, so an enrichment of depleteion is rare.
 
 Finally, we will conduct a pathway enrichment analysis
 ```{r }
@@ -317,16 +324,16 @@ Translate_EC_to_reaction = read_tsv("/mnt/project/Make_Associations/Functional_e
 #Uniref90 to ECs
 read_rds("/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/For_enrichment/UniRef90/ec.rds") -> ECs
 ECs_tibble <- enframe(ECs, name = "EC", value = "UniRef90")
-ECs_tibble %>% separate_rows(UniRef90, sep="\t") %>% filter(UniRef90 %in% Gene_enrichment[[1]]$Gene ) -> ECs_tibble
+ECs_tibble %>% separate_rows(UniRef90, sep="\t")  -> ECs_tibble
 
 
 Run_enrichment = function(Summary_stats, Table,Plot=F){
-  Summary_stats %>%  arrange(desc(`z value`))-> R1
+  Summary_stats %>%  arrange(Odds_ratio)-> R1
   #Prepare ranks
-  ranks = R1$`z value`
+  ranks = R1$Odds_ratio
   names(ranks) = as.character(R1$Gene)
   #Run GSEA
-  fgseaRes <- fgsea::fgsea(Table, ranks)
+  fgseaRes <- fgsea::fgsea(Table, ranks, scoreType = "pos")
   
   if (Plot == T){
     topPathwaysUp <- fgseaRes[ES > 0][head(order(pval), n=10), pathway]
@@ -340,9 +347,14 @@ Run_enrichment = function(Summary_stats, Table,Plot=F){
 
 
 #1. Uniref90 --> EC ---> Reactions --> Metacyc Enrichment
-Gene_enrichment[[1]]  %>% filter(Feature == "CladeClade_higherBMI") %>% mutate(p.adjust(`Pr(>|z|)` , "fdr") ) %>% rename(UniRef90 = Gene) %>% left_join(ECs_tibble) %>% rename(ec = EC) %>% left_join(Translate_EC_to_reaction) %>%  drop_na()  -> Input2
+Gene_enrichment[[1]]%>% left_join(ECs_tibble %>% rename(Gene = UniRef90), relationship = "many-to-many" ) -> merged_ec
+#merged_ec %>% drop_na() %>% group_by(Gene) %>% summarise(n()) #80 annotated
 
-MetaCyc_enrichment = Run_enrichment(Input2 %>% rename(Gene = Reaction) ,  Table=Enrichment_tables )
+Input_enrichment = merged_ec %>% left_join(Translate_EC_to_reaction %>% rename(EC = ec)) %>% distinct() %>% dplyr::mutate(Odds_ratio =  log10(Odds_ratio) ) %>% mutate(Gene = Reaction)
+
+
+
+MetaCyc_enrichment = Run_enrichment(Input_enrichment ,  Table=Enrichment_tables )
 
 
 ```
@@ -352,23 +364,5 @@ See enrichment results
 ```{r }
 MetaCyc_enrichment %>% as_tibble() %>% arrange(pval)
 ```
-See what was the prevalence of those genes
-```{r} 
-Significant_pathways = MetaCyc_enrichment %>% as_tibble() %>% filter(padj<0.05)
-Significant_pathways$pathway %>% sapply( function(x){ Enrichment_tables[[x]] } ) %>% as_vector() -> Reactions_enriched
-Input2 %>% filter(Reaction %in% Reactions_enriched) %>% arrange(Estimate) %>% select(Feature, `z value` , `Pr(>|z|)`, Prevalence_high, Prevalence_other, Pathways)
-```
-Check enrichment plots
-```{r }
-r1 = Input2 %>%  arrange(desc(`z value`))
-ranks = r1$`z value` ; names(ranks) = as.character(Input2$Reaction)
 
-Make_plot_enr = function(Enrichment_tables, ranks ,Pathway){
-  plotEnrichment(Enrichment_tables[[Pathway]], ranks) + labs(title=Pathway) + theme( text = element_text(size = 21),  plot.title = element_text(size = 26), axis.title.x = element_text(size = 21),  axis.title.y = element_text(size = 21)  )
-}
 
-Make_plot_enr(Enrichment_tables, ranks ,'PWY-6897')
-Make_plot_enr(Enrichment_tables, ranks ,'PWY-7357')
-Make_plot_enr(Enrichment_tables, ranks ,'PWY-6527')
-
-```

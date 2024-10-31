@@ -360,7 +360,7 @@ display: none;
 <pre class="r"><code>set.seed(12234)
 library(tidyverse)</code></pre>
 <pre><code>## ── Attaching core tidyverse packages ────────────────────────────────────────────────────────────────────────────────────────────────────── tidyverse 2.0.0 ──
-## ✔ dplyr     1.1.2     ✔ readr     2.1.4
+## ✔ dplyr     1.1.4     ✔ readr     2.1.4
 ## ✔ forcats   1.0.0     ✔ stringr   1.5.0
 ## ✔ ggplot2   3.4.2     ✔ tibble    3.2.1
 ## ✔ lubridate 1.9.2     ✔ tidyr     1.3.0
@@ -1607,8 +1607,24 @@ Results_test = GeneEnrichmentTest( DF_uniref =  Info,UniRef90_wide = Gene_info ,
 ## `summarise()` has grouped output by &#39;UniRef90_A0A174CQR9&#39;. You can override using the `.groups` argument.
 ## `summarise()` has grouped output by &#39;UniRef90_A0A096LGD9&#39;. You can override using the `.groups` argument.
 ## `summarise()` has grouped output by &#39;UniRef90_A0A374UDR1&#39;. You can override using the `.groups` argument.</code></pre>
-<pre class="r"><code>write_tsv(Results_test, &quot;Supp_Tables_update/Collinsella_GeneEnrichment_melanomaClade_highQMAGs.tsv&quot;)</code></pre>
-<p>Pathway completion</p>
+<pre class="r"><code>Results_test %&gt;% mutate(FDR = p.adjust(P, &quot;fdr&quot;) ) %&gt;% arrange(P) -&gt; Results_test
+write_tsv(Results_test, &quot;Supp_Tables_update/Collinsella_GeneEnrichment_melanomaClade_highQMAGs.tsv&quot;)
+
+#N significant
+Results_test %&gt;% group_by(FDR&lt;0.05) %&gt;% summarise(n())</code></pre>
+<pre><code>## # A tibble: 2 × 2
+##   `FDR &lt; 0.05` `n()`
+##   &lt;lgl&gt;        &lt;int&gt;
+## 1 FALSE          182
+## 2 TRUE           332</code></pre>
+<pre class="r"><code>#Direction significance
+Results_test %&gt;% filter(FDR&lt;0.05)  %&gt;% group_by(Odds_ratio &gt; 1) %&gt;% summarise(n())</code></pre>
+<pre><code>## # A tibble: 2 × 2
+##   `Odds_ratio &gt; 1` `n()`
+##   &lt;lgl&gt;            &lt;int&gt;
+## 1 FALSE              114
+## 2 TRUE               218</code></pre>
+<p>Add pathway information</p>
 <pre class="r"><code>read_rds(&quot;/mnt/project/Make_Associations/Functional_enrichment/MAG_analysis/For_enrichment/UniRef90/ec.rds&quot;) -&gt; ECs
 ECs_tibble &lt;- enframe(ECs, name = &quot;EC&quot;, value = &quot;UniRef90&quot;)
 ECs_tibble %&gt;% separate_rows(UniRef90, sep=&quot;\t&quot;) -&gt; ECs_tibble
@@ -1643,10 +1659,17 @@ Results_test %&gt;% left_join(ECs_tibble %&gt;% rename(Gene = UniRef90), relatio
 <pre class="r"><code>merged_ec %&gt;% left_join(Translate_EC_to_reaction %&gt;% rename(EC = ec)) %&gt;% distinct() -&gt; Merged_info</code></pre>
 <pre><code>## Joining with `by = join_by(EC)`</code></pre>
 <pre><code>## Warning in left_join(., Translate_EC_to_reaction %&gt;% rename(EC = ec)): Detected an unexpected many-to-many relationship between `x` and `y`.
-## ℹ Row 5 of `x` matches multiple rows in `y`.
-## ℹ Row 3395 of `y` matches multiple rows in `x`.
+## ℹ Row 35 of `x` matches multiple rows in `y`.
+## ℹ Row 14146 of `y` matches multiple rows in `x`.
 ## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
-<p>Test</p>
+<p>How many of the genes actually have an EC</p>
+<pre class="r"><code>Merged_info %&gt;% mutate(Has_EC = ifelse(is.na(EC), F, T )) %&gt;% group_by(Has_EC ) %&gt;% summarise(n())</code></pre>
+<pre><code>## # A tibble: 2 × 2
+##   Has_EC `n()`
+##   &lt;lgl&gt;  &lt;int&gt;
+## 1 FALSE    428
+## 2 TRUE     549</code></pre>
+<p>Test Pathway completion</p>
 <pre class="r"><code>Enrichment_tables %&gt;% stack() %&gt;% as_tibble() %&gt;% rename(Reaction =values , Pathways = ind  ) -&gt; Pathwyas_tibble
 Pathwyas_tibble %&gt;% group_by(Pathways) %&gt;% summarise(N = n()) -&gt; Pathways_numbers
 Results_test_pathway=tibble()
@@ -1676,7 +1699,39 @@ Info_with_genes= Info %&gt;% left_join(Gene_info)</code></pre>
   left_join(Completedness_total, To_save, by=&quot;ID_anal&quot;) %&gt;% as_tibble() -&gt; Completedness_total
 }</code></pre>
 <pre><code>## [1] NA
-## [1] &quot;P4-PWY&quot;</code></pre>
+## [1] &quot;PWY-2781&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;P641-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;RIBOKIN-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7156&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;NONMEVIPP-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7392&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6270&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-5121&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;P4-PWY&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
@@ -1688,19 +1743,47 @@ Info_with_genes= Info %&gt;% left_join(Gene_info)</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6430&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-7376&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7209&quot;</code></pre>
+<pre><code>## [1] &quot;P381-PWY&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-3982&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-5523&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-2781&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-5507&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6168&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
+<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
+## ℹ Row 6633 of `x` matches multiple rows in `y`.
+## ℹ Row 7553 of `y` matches multiple rows in `x`.
+## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
+<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY66-366&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
+<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
+## ℹ Row 1 of `x` matches multiple rows in `y`.
+## ℹ Row 1784 of `y` matches multiple rows in `x`.
+## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
+<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;RIBOSYN2-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
+<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
+## ℹ Row 6633 of `x` matches multiple rows in `y`.
+## ℹ Row 18431 of `y` matches multiple rows in `x`.
+## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
+<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6167&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
@@ -1709,6 +1792,142 @@ Info_with_genes= Info %&gt;% left_join(Gene_info)</code></pre>
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
 <pre><code>## [1] &quot;COBALSYN-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7377&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;THREOCAT-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-5443&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-5509&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-5508&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;ASPARAGINE-BIOSYNTHESIS&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6470&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6471&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6386&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-5265&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-4221&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
+<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
+## ℹ Row 33161 of `x` matches multiple rows in `y`.
+## ℹ Row 2138 of `y` matches multiple rows in `x`.
+## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
+<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;COA-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
+<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
+## ℹ Row 13265 of `x` matches multiple rows in `y`.
+## ℹ Row 336 of `y` matches multiple rows in `x`.
+## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
+<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-4242&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
+<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
+## ℹ Row 23213 of `x` matches multiple rows in `y`.
+## ℹ Row 336 of `y` matches multiple rows in `x`.
+## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
+<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PANTOSYN-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
+<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
+## ℹ Row 29845 of `x` matches multiple rows in `y`.
+## ℹ Row 2138 of `y` matches multiple rows in `x`.
+## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
+<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-5505&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;AMMASSIM-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;GLUTSYN-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;GLUTAMINEFUM-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;THIOREDOX-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY0-1309&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6404&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
+<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
+## ℹ Row 29845 of `x` matches multiple rows in `y`.
+## ℹ Row 359 of `y` matches multiple rows in `x`.
+## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
+<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY0-662&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PRPP-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
+<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
+## ℹ Row 13265 of `x` matches multiple rows in `y`.
+## ℹ Row 1577 of `y` matches multiple rows in `x`.
+## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
+<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY4LZ-257&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;GLUDEG-II-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6751&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6759&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6785&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
@@ -1760,39 +1979,215 @@ Info_with_genes= Info %&gt;% left_join(Gene_info)</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5505&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-6430&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;AMMASSIM-PWY&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-7209&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;GLUTSYN-PWY&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-3982&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;GLUTAMINEFUM-PWY&quot;</code></pre>
+<pre><code>## [1] &quot;PWY0-1264&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;ASPARAGINE-BIOSYNTHESIS&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-5316&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6470&quot;</code></pre>
+<pre><code>## [1] &quot;PYRIDNUCSYN-PWY&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6471&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-7342&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6386&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-5971&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5265&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-5994&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6285&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6113&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-5156&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7388&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6284&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6282&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-5973&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-5367&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6519&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;BIOTIN-BIOSYNTHESIS-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY0-862&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY0-881&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWYG-321&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;FASYN-ELONG-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-5989&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY3O-355&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;FASYN-INITIAL-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-4381&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PEPTIDOGLYCANSYN-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7438&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7301&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7440&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;DTDPRHAMSYN-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6977&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6976&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6974&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6973&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-3221&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6942&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7414&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6953&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7110&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;OANTIGEN-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
+<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
+## ℹ Row 29845 of `x` matches multiple rows in `y`.
+## ℹ Row 359 of `y` matches multiple rows in `x`.
+## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
+<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7104&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7287&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;ECASYN-PWY&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-6808&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7413&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7315&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7316&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7317&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7312&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-7318&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
@@ -1904,390 +2299,6 @@ Info_with_genes= Info %&gt;% left_join(Gene_info)</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY0-1309&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY0-381&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-4261&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;RIBOKIN-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7156&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;NONMEVIPP-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7392&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6270&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5121&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY0-1264&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5971&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5994&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY0-862&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6285&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6284&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY0-881&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6113&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5156&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6282&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5973&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6519&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;BIOTIN-BIOSYNTHESIS-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;FASYN-ELONG-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWYG-321&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7388&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5989&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY3O-355&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5367&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6799&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;FASYN-INITIAL-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-4381&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-723&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;P641-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6404&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
-<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
-## ℹ Row 29845 of `x` matches multiple rows in `y`.
-## ℹ Row 359 of `y` matches multiple rows in `x`.
-## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
-<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY0-662&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PRPP-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
-<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
-## ℹ Row 13265 of `x` matches multiple rows in `y`.
-## ℹ Row 1577 of `y` matches multiple rows in `x`.
-## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
-<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7438&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7301&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7440&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;DTDPRHAMSYN-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6977&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6976&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6974&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6973&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-3221&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6942&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7414&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6953&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7110&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;OANTIGEN-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
-<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
-## ℹ Row 29845 of `x` matches multiple rows in `y`.
-## ℹ Row 359 of `y` matches multiple rows in `x`.
-## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
-<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7104&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7287&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;ECASYN-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6808&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7413&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7315&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7316&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7317&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7312&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7318&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY4LZ-257&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;GLUDEG-II-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6751&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6759&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6785&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PEPTIDOGLYCANSYN-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;THIOREDOX-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5523&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5507&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;P381-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6168&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
-<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
-## ℹ Row 6633 of `x` matches multiple rows in `y`.
-## ℹ Row 7553 of `y` matches multiple rows in `x`.
-## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
-<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY66-366&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
-<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
-## ℹ Row 1 of `x` matches multiple rows in `y`.
-## ℹ Row 1784 of `y` matches multiple rows in `x`.
-## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
-<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;RIBOSYN2-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
-<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
-## ℹ Row 6633 of `x` matches multiple rows in `y`.
-## ℹ Row 18431 of `y` matches multiple rows in `x`.
-## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
-<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-6167&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-4221&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
-<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
-## ℹ Row 33161 of `x` matches multiple rows in `y`.
-## ℹ Row 2138 of `y` matches multiple rows in `x`.
-## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
-<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;COA-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
-<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
-## ℹ Row 13265 of `x` matches multiple rows in `y`.
-## ℹ Row 336 of `y` matches multiple rows in `x`.
-## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
-<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-4242&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
-<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
-## ℹ Row 23213 of `x` matches multiple rows in `y`.
-## ℹ Row 336 of `y` matches multiple rows in `x`.
-## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
-<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PANTOSYN-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
-<pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
-## ℹ Row 29845 of `x` matches multiple rows in `y`.
-## ℹ Row 2138 of `y` matches multiple rows in `x`.
-## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
-<pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5328&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-702&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;ADENOSYLHOMOCYSCAT-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5441&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-724&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5316&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PYRIDNUCSYN-PWY&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7342&quot;</code></pre>
-<pre><code>## Joining with `by = join_by(UniRef90)`
-## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
-## Joining with `by = join_by(ID_anal)`</code></pre>
 <pre><code>## [1] &quot;1CMET2-PWY&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`</code></pre>
 <pre><code>## Warning in left_join(., ECs_to_check): Detected an unexpected many-to-many relationship between `x` and `y`.
@@ -2312,27 +2323,39 @@ Info_with_genes= Info %&gt;% left_join(Gene_info)</code></pre>
 ## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
 <pre><code>## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5509&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-6799&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7376&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-723&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-7377&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-5328&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;THREOCAT-PWY&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-702&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5443&quot;</code></pre>
+<pre><code>## [1] &quot;ADENOSYLHOMOCYSCAT-PWY&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
-<pre><code>## [1] &quot;PWY-5508&quot;</code></pre>
+<pre><code>## [1] &quot;PWY-5441&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-724&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY0-381&quot;</code></pre>
+<pre><code>## Joining with `by = join_by(UniRef90)`
+## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
+## Joining with `by = join_by(ID_anal)`</code></pre>
+<pre><code>## [1] &quot;PWY-4261&quot;</code></pre>
 <pre><code>## Joining with `by = join_by(UniRef90)`
 ## `summarise()` has grouped output by &#39;ID_anal&#39;. You can override using the `.groups` argument.
 ## Joining with `by = join_by(ID_anal)`</code></pre>
@@ -2363,12 +2386,13 @@ write_tsv(Results_test_pathway, &quot;Supp_Tables_update/Collinsella_PathComplet
   
   return(fgseaRes)
 }</code></pre>
-<pre class="r"><code>Run_enrichment(merged_ec %&gt;% left_join(Translate_EC_to_reaction %&gt;% rename(EC = ec)) %&gt;% distinct() %&gt;% dplyr::mutate(Odds_ratio =  log10(Odds_ratio) ) %&gt;%  dplyr::rename(`z value` = Odds_ratio ) %&gt;% mutate(Gene = Reaction)   ,  Table=Enrichment_tables )  %&gt;% as_tibble() %&gt;% arrange(pval) -&gt; R_reaction</code></pre>
+<pre class="r"><code>Input_enrichment = merged_ec %&gt;% left_join(Translate_EC_to_reaction %&gt;% rename(EC = ec)) %&gt;% distinct() %&gt;% dplyr::mutate(Odds_ratio =  log10(Odds_ratio) ) %&gt;%  dplyr::rename(`z value` = Odds_ratio ) %&gt;% mutate(Gene = Reaction)</code></pre>
 <pre><code>## Joining with `by = join_by(EC)`</code></pre>
 <pre><code>## Warning in left_join(., Translate_EC_to_reaction %&gt;% rename(EC = ec)): Detected an unexpected many-to-many relationship between `x` and `y`.
-## ℹ Row 5 of `x` matches multiple rows in `y`.
-## ℹ Row 3395 of `y` matches multiple rows in `x`.
+## ℹ Row 35 of `x` matches multiple rows in `y`.
+## ℹ Row 14146 of `y` matches multiple rows in `x`.
 ## ℹ If a many-to-many relationship is expected, set `relationship = &quot;many-to-many&quot;` to silence this warning.</code></pre>
+<pre class="r"><code>Run_enrichment( Summary_stats =  Input_enrichment ,  Table=Enrichment_tables )  %&gt;% as_tibble() %&gt;% arrange(pval) -&gt; R_reaction</code></pre>
 <pre><code>## Warning in preparePathwaysAndStats(pathways, stats, minSize, maxSize, gseaParam, : There are ties in the preranked stats (87% of the list).
 ## The order of those tied genes will be arbitrary, which may produce unexpected results.</code></pre>
 <pre><code>## Warning in preparePathwaysAndStats(pathways, stats, minSize, maxSize,
@@ -2394,7 +2418,7 @@ write_tsv(Results_test_pathway, &quot;Supp_Tables_update/Collinsella_PathComplet
 ## 14 RIBOSYN2-PWY  0.00368     0.0380      0.432 0.916  2.26     2 &lt;chr [2]&gt;  
 ## 15 PWY-2781      0.00383     0.0380      0.432 0.996  1.98     1 &lt;chr [1]&gt;  
 ## 16 PWY-5509      0.00457     0.0426      0.407 0.840  2.42     3 &lt;chr [3]&gt;</code></pre>
-<pre class="r"><code>write_tsv(R_reaction, &quot;Supp_Tables_update/Collinsella_PathwayEnrichment_melanomaClade_highQMAGs.tsv&quot;)</code></pre>
+<pre class="r"><code>write_tsv(R_reaction %&gt;% select(-leadingEdge), &quot;Supp_Tables_update/Collinsella_PathwayEnrichment_melanomaClade_highQMAGs.tsv&quot;)</code></pre>
 </div>
 
 
