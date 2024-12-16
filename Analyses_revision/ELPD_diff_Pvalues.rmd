@@ -139,11 +139,10 @@ Here, there is a simulation written by Andrew Ghazi, developer of the tool, show
 ```{r}
 library(anpan)
 
-anpan_loo_res = function() {
+anpan_loo_res = function(sigma_phylo = 0 ) {
   # set.seed(123)
 
   n = 120
-  sigma_phylo = 0
   sigma_resid = 1
 
   tr = ape::rtree(n)
@@ -189,6 +188,7 @@ anpan_loo_res = function() {
 #write_tsv(sim_df, "simulation_results.tsv")
 sim_df = read_tsv("simulation_results.tsv")
 
+
 ```
 
 ```{r }
@@ -199,7 +199,7 @@ sim_df |>
   geom_segment(aes(x = elpd_diff - 2*elpd_se,
                    xend = elpd_diff + 2*elpd_se,
                    yend = i)) +
-  theme_light() + geom_vline(xintercept = -4, linetype=2) -> P1
+  theme_light() + geom_vline(xintercept = 4, linetype=2) + geom_vline(xintercept = 0, linetype=2, color = 'red') -> P1
 sim_df %>% ggplot(aes(x=elpd_diff)) + geom_histogram() +theme_bw() + geom_vline(xintercept = -4, linetype=2) -> P2
 
 P1 + P2
@@ -220,6 +220,33 @@ sim_df %>% mutate(T_stat = elpd_diff/elpd_se, P_value = T_stat_P(T_stat), P_bonf
 
 ```
 
+Now, we will do the simulations when the phylogenetic signal is > 0 :
+```{r }
+
+#sim_df_postiive = do.call( rbind, seq(1,100) %>% lapply( function(x){
+#  #List_effect = c(0.2, 0.5, 0.8, 0.8, 1, 1, 1.5, 2, 2, 3)
+#    Phylo_effect = sample(size =  1, c(1, 1.5, 2, 3.5, 3, 0.5, 0.2, 0.8 ) )
+#    #Phylo_effect = List_effect[x]
+#  anpan_loo_res(Phylo_effect) -> Res
+#  Res %>% mutate( Sim = x, Phylo_effect = Phylo_effect) -> Res
+#  return(Res)
+# } ) )
+
+#write_tsv(sim_df_postiive, "simulation_results_positive.tsv")
+sim_df_postiive = read_tsv("simulation_results_positive.tsv")
+
+```
+
+```{r}
+sim_df_postiive %>%  ggplot(aes(x = elpd_diff, y = Sim )) +
+  geom_point() +
+  geom_segment(aes(x = elpd_diff - 2*elpd_se,
+                   xend = elpd_diff + 2*elpd_se,
+                   yend = Sim )) +
+  theme_light() + geom_vline(xintercept = 4, linetype=2) + geom_vline(xintercept = 0, linetype=2, color = 'red') + facet_wrap(~as.factor(Phylo_effect), scales = 'free')   -> P1
+sim_df_postiive %>% ggplot(aes(x=elpd_diff)) + geom_histogram() +theme_bw() + geom_vline(xintercept = -4, linetype=2) + facet_wrap(~as.factor(Phylo_effect)) -> P2
+P1 | P2
+```
 
 
 ## Phenotype Permutations and sigma estimation
