@@ -193,7 +193,7 @@ sim_df = read_tsv("simulation_results.tsv")
 
 ```{r }
 sim_df |>
-  mutate(i = 1:100) |>
+  mutate(i = 1:200) |>
   ggplot(aes(x = elpd_diff, y = i)) +
   geom_point() +
   geom_segment(aes(x = elpd_diff - 2*elpd_se,
