@@ -42,7 +42,7 @@ Datasets included in this study are publicly available. All datasets, with the e
 *KurilshikovA_2019*: Metagenomics data can be requested from EGA (EGAS00001003508). Phenotype data can be requested via: http://www.humanfunctionalgenomics.org
 *StrazarM_2021*: Metagenomics data can be accessed from the European Nucleotide Archive (PRJNA686265). Phenotype data is included in the original publication.  
 #### Acess to phylogenies
-Phylogenetic trees generated in this work are available in the corresponding Zenodo repository.
+Phylogenetic trees generated in this work are available in the corresponding Zenodo repository: https://doi.org/10.5281/zenodo.14651412
 
 
  
