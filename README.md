@@ -35,8 +35,14 @@ Scripts for associating mantel's rho value and microbial features can be found i
 Scripts using for phenotype-phylogeny assocaitions (using anpan) are available in: ```scripts_phenotype/```
 
 ## Data Access
-To be updated!
-
+Datasets included in this study are publicly available. All datasets, with the exception of GacesaR_2022, ZhernakovaA_2016, KurilshikovA_2019, and StražarM_2021, have been collected previously and are curated in CuratedMetagenomicData. Accessions collected in that study are included in Supplementary Table 1.1. Phenotypes are available as part of CuratedMetagenomicData.  
+#### Datasets not included in CuratedMetagenomicData
+*Lifelines datasets*: Metagenomics data can be requested from the European Genome-Phenome Archive (EGA) for GacesaR_2022 (EGAS00001005027) and ZhernakovaA_2016 (EGAD00001001991). Phenotypes can be requested by filling out the application form at https://www.lifelines.nl/researcher/how-to-apply/apply-here.  
+*VichVilaA_2018*: Raw metagenomics, host genomics and phenotypic data used in this study are available from the EGA data repository: 1000 Inflammatory bowel disease (IBD) cohort (EGAD00001004194). Metagenomics data can be requested from the EGA (EGAD00001004194).  
+*KurilshikovA_2019*: Metagenomics data can be requested from EGA (EGAS00001003508). Phenotype data can be requested via: http://www.humanfunctionalgenomics.org
+*StrazarM_2021*: Metagenomics data can be accessed from the European Nucleotide Archive (PRJNA686265). Phenotype data is included in the original publication.  
+#### Acess to phylogenies
+Phylogenetic trees generated in this work are available in the corresponding Zenodo repository.
 
 
  
